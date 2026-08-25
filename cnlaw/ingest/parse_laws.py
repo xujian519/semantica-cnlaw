@@ -51,10 +51,17 @@ _CATEGORY_LEVEL = {
 
 @dataclass
 class LawArticle:
-    """A single numbered article (第N条)."""
+    """A single numbered article (第N条) or a guideline section (2.1.3)."""
 
     number: str
     text: str
+    # Extra metadata used by the patent examination guide (guideline sections).
+    title: str = ""
+    level: int = 0
+    part: str = ""
+    chapter: str = ""
+    parent_number: str = ""
+    kind: str = ""  # "law_article" / "guideline_section" / "introduction" / "amendment"
 
 
 @dataclass

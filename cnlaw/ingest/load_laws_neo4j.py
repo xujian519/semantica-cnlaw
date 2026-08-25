@@ -129,6 +129,12 @@ def build_article_plan(docs: List[LawDocument]) -> List[Dict]:
                     "number": article.number,
                     "text": article.text,
                     "order": order,
+                    "title": article.title,
+                    "level": article.level,
+                    "part": article.part,
+                    "chapter": article.chapter,
+                    "parent_number": article.parent_number,
+                    "kind": article.kind,
                 }
             )
     return records
@@ -290,7 +296,13 @@ def apply_import_articles(articles: List[Dict], store) -> Dict[str, int]:
         "UNWIND $rows AS r "
         "MATCH (d:LegalDocument {full_name:r.full_name, source_date:r.source_date}) "
         "MERGE (a:Article {full_name:r.full_name, source_date:r.source_date, number:r.number}) "
-        "SET a.text=r.text, a.order=r.order "
+        "SET a.text=r.text, a.order=r.order, "
+        "a.title=CASE WHEN r.title<>'' THEN r.title ELSE a.title END, "
+        "a.level=CASE WHEN r.level>0 THEN r.level ELSE a.level END, "
+        "a.part=CASE WHEN r.part<>'' THEN r.part ELSE a.part END, "
+        "a.chapter=CASE WHEN r.chapter<>'' THEN r.chapter ELSE a.chapter END, "
+        "a.parent_number=CASE WHEN r.parent_number<>'' THEN r.parent_number ELSE a.parent_number END, "
+        "a.kind=CASE WHEN r.kind<>'' THEN r.kind ELSE a.kind END "
         "MERGE (d)-[:has_article]->(a)",
         {"rows": articles},
     )

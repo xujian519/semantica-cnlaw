@@ -79,12 +79,17 @@ def test_article_plan_dedups_and_counts():
     d2.articles = [LawArticle("第一条", "第二条重复目录应被跳过…")]
     plan = build_article_plan([d1, d2])
     assert len(plan) == 2
-    assert plan[0] == {
-        "full_name": "中华人民共和国刑法",
-        "source_date": "2020-12-26",
-        "number": "第一条",
-        "text": "为了惩罚犯罪…",
-        "order": 0,
-    }
+    assert plan[0]["full_name"] == "中华人民共和国刑法"
+    assert plan[0]["source_date"] == "2020-12-26"
+    assert plan[0]["number"] == "第一条"
+    assert plan[0]["text"] == "为了惩罚犯罪…"
+    assert plan[0]["order"] == 0
+    # guide-loaded hierarchy fields default empty for a plain law article
+    assert plan[0]["title"] == ""
+    assert plan[0]["level"] == 0
+    assert plan[0]["part"] == ""
+    assert plan[0]["chapter"] == ""
+    assert plan[0]["parent_number"] == ""
+    assert plan[0]["kind"] == ""
     assert plan[1]["number"] == "第一百二十条之一"
     assert plan[1]["order"] == 1
