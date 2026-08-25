@@ -1,0 +1,155 @@
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+@prefix law: <https://cnlaw.dev/law#> .
+
+<https://cnlaw.dev/law> a owl:Ontology ;
+    rdfs:label "中国法律领域本体" ;
+    rdfs:comment """Ontology for the current Chinese national legal corpus:
+laws, administrative regulations, judicial interpretations and departmental
+rules. Drafted for the cnlaw pipeline (parse -> normalize -> extract -> KG) so
+each document and its articles are typed and traceable in Neo4j.""" ;
+    owl:versionInfo "0.1.0-draft" ;
+    dct:created "2026-08-25"^^xsd:date .
+
+# ── Classes ──────────────────────────────────────────────────────────────────
+
+law:LegalDocument a owl:Class ;
+    rdfs:label "法律文件" ;
+    rdfs:comment """A legal instrument as a whole (a law, an administrative
+regulation, a judicial interpretation or a departmental rule). Carries the
+document-level metadata: department category, promulgation/amendment dates,
+legal hierarchy and effective status.""" ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:Article a owl:Class ;
+    rdfs:label "条文" ;
+    rdfs:comment """A single numbered article of a LegalDocument (the 第N条
+unit). Keeps its article number, original text and the document it belongs to.""" ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:LegalCategory a owl:Class ;
+    rdfs:label "部门分类" ;
+    rdfs:comment """The department/domain grouping a document is filed under
+(宪法, 刑法, 民法商法, 经济法, 行政法, 社会法, 司法解释, 行政法规, ...).""" ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:EnactingBody a owl:Class ;
+    rdfs:label "制定机关" ;
+    rdfs:comment """The organ that promulgated or amended a document, e.g. the
+National People's Congress, its Standing Committee, the State Council, or a
+ministry.""" ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:LegalLevel a owl:Class ;
+    rdfs:label "效力层级" ;
+    rdfs:comment """The position of an instrument in the hierarchy of legal
+norms: 宪法, 法律, 行政法规, 司法解释, 部门规章.""" ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+# ── Datatype properties ──────────────────────────────────────────────────────
+
+law:name a owl:DatatypeProperty ;
+    rdfs:label "简称" ;
+    rdfs:comment "Short/simple name of the document." ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:full_name a owl:DatatypeProperty ;
+    rdfs:label "全称" ;
+    rdfs:comment "Full official title of the document." ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:promulgated_date a owl:DatatypeProperty ;
+    rdfs:label "颁布日期" ;
+    rdfs:comment "Date the instrument was promulgated, as an ISO date." ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range xsd:date ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:amended_date a owl:DatatypeProperty ;
+    rdfs:label "历次修正日期" ;
+    rdfs:comment "Date(s) the instrument was amended, as blank-separated ISO dates." ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:legal_level a owl:DatatypeProperty ;
+    rdfs:label "效力层级" ;
+    rdfs:comment "Label of the legal hierarchy level, as a string." ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:status a owl:DatatypeProperty ;
+    rdfs:label "时效状态" ;
+    rdfs:comment """Effective status of the document: 现行有效 (currently in
+force), 已被修订 (superseded/amended), 已废止 (repealed) or 待核验 (to be
+verified). '待核验' is the fallback when the status cannot be decided
+deterministically.""" ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:document_number a owl:DatatypeProperty ;
+    rdfs:label "文号" ;
+    rdfs:comment """Official instrument number, e.g. 主席令第 N 号 or 国务院令第 N 号.""" ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:effective_date a owl:DatatypeProperty ;
+    rdfs:label "施行日期" ;
+    rdfs:comment """Date the instrument takes effect, as an ISO date.""" ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range xsd:date ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:number a owl:DatatypeProperty ;
+    rdfs:label "条号" ;
+    rdfs:comment "The article number, e.g. 第二十二条 or 第一百二十条之一." ;
+    rdfs:domain law:Article ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+# ── Object properties ────────────────────────────────────────────────────────
+
+law:belongs_to_category a owl:ObjectProperty ;
+    rdfs:label "属于部门分类" ;
+    rdfs:comment "Links a LegalDocument to the LegalCategory it is filed under." ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range law:LegalCategory ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:has_article a owl:ObjectProperty ;
+    rdfs:label "含有条文" ;
+    rdfs:comment "Links a LegalDocument to each of its Articles." ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range law:Article ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:amended_by a owl:ObjectProperty ;
+    rdfs:label "由…修订" ;
+    rdfs:comment "Links a LegalDocument to the amendment instrument or body that revised it." ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:supersedes a owl:ObjectProperty ;
+    rdfs:label "取代" ;
+    rdfs:comment "A historical version of a document superseded by the currently effective one." ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range law:LegalDocument ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
+law:based_on a owl:ObjectProperty ;
+    rdfs:label "上位法依据" ;
+    rdfs:comment "The higher law a document states it is enacted under, e.g. 根据宪法." ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range law:LegalDocument ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .

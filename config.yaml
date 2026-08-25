@@ -1,0 +1,48 @@
+# =============================================================================
+# semantica-cnlaw 本地中文工作环境配置
+# -----------------------------------------------------------------------------
+# 说明：
+#   - 业务/管线段：embedding / kg / parse / ingest / pipeline / provenance
+#   - 后端连接：graph_store / vector_store，也可由环境变量驱动（见 .env）
+#   - LLM：本地 Ollama（数据不出内网、零 API 成本），通过 OllamaProvider 注入
+# =============================================================================
+
+# 本地 Ollama 无 API key；此处仅占位，实际由 providers.OllamaProvider 使用
+api_keys:
+  openai: ""
+
+llm:
+  provider: ollama
+  model: qwen3.8:latest          # 27.3B，本地抽取主力（支持 thinking / JSON）
+  base_url: http://localhost:11434
+
+embedding:
+  text:
+    model_name: BAAI/bge-m3      # 官方 bge-m3（sentence-transformers 本地加载）
+    method: sentence_transformers
+    device: cpu
+    normalize: true
+
+kg:
+  backend: neo4j
+  temporal: true
+
+graph_store:
+  default_backend: neo4j
+  neo4j_uri: bolt://localhost:7687
+  neo4j_user: neo4j
+  neo4j_database: neo4j
+  neo4j_encrypted: false
+
+vector_store:
+  default_backend: faiss
+  faiss_index_path: ./data/vector_store
+  metadata_store: ./data/vector_meta
+
+provenance:
+  storage_path: ./data/provenance
+
+processing:
+  batch_size: 128
+  max_workers: 4
+  timeout: 600

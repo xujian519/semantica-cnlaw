@@ -1,0 +1,45 @@
+# SHACL constraints for the Chinese legal corpus.
+#
+# These shapes turn the law.ttl schema into a data-quality gate for the
+# Neo4j import (M1) and beyond: an instrument must carry a legal level, a
+# promulgation date and a well-formed status; articles must be numbered.
+# Validated with PySHACL via OntologyEngine.validate_graph.
+
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix law: <https://cnlaw.dev/law#> .
+
+law:LegalDocumentShape a sh:NodeShape ;
+    sh:targetClass law:LegalDocument ;
+    sh:property [
+        sh:path law:status ;
+        sh:minCount 1 ;
+        sh:in ( "现行有效" "已被修订" "已废止" "待核验" ) ;
+        sh:message "法律文件的 status 必须是 现行有效/已被修订/已废止/待核验 之一" ;
+    ] ;
+    sh:property [
+        sh:path law:promulgated_date ;
+        sh:minCount 1 ;
+        sh:datatype xsd:date ;
+        sh:message "法律文件必须有颁布日期 (promulgated_date, xsd:date)" ;
+    ] ;
+    sh:property [
+        sh:path law:legal_level ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "法律文件必须有效力层级 (legal_level)" ;
+    ] ;
+    sh:property [
+        sh:path law:has_article ;
+        sh:class law:Article ;
+        sh:message "has_article 指向的节点必须是 Article" ;
+    ] .
+
+law:ArticleShape a sh:NodeShape ;
+    sh:targetClass law:Article ;
+    sh:property [
+        sh:path law:number ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "条文必须有条号 (number)" ;
+    ] .
