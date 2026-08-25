@@ -22,6 +22,23 @@ _SAME_DOC_RE = re.compile(
 _CROSS_DOC_RE = re.compile(r"《([^》]{1,50})》\s*第([一二三四五六七八九十百千零〇0-9]{1,6})条")
 _NUM_RE = re.compile(r"第([一二三四五六七八九十百千零〇0-9]{1,6})条")
 
+# The guideline cites statutes by their bare name (专利法/专利法实施细则), not
+# wrapped in 《》. A name is a CJK string ending in 法 (optionally 实施细则).
+_BARE_LAW_RE = re.compile(
+    r"([\u4e00-\u9fff]{2,12}?法(?:实施细则)?)\s*第([一二三四五六七八九十百千零〇0-9]{1,6})条"
+)
+# Leading connective words must not be swallowed into a bare law name, so the
+# matched name is split on them and only the final noun kept.
+_BARE_PREFIX_SPLIT = re.compile(
+    r"(?:依照|根据|适用|参见|参照|按照|依据|按|如|而|对于|关于|所述|前述|应当|违反|属于|该|本|指)"
+)
+# The guideline also cross-references its own sections: 本章第 N.M 节 (same doc)
+# and 本部分第X章第 N.M 节 (a sibling chapter in the same 部分).
+_GUIDE_CH_RE = re.compile(r"本章\s*第\s*([0-9]+(?:\.[0-9]+)*)\s*节")
+_GUIDE_PART_RE = re.compile(
+    r"本部分\s*第([一二三四五六七八九十]+)章\s*第\s*([0-9]+(?:\.[0-9]+)*)\s*节"
+)
+
 _CN_DIGITS = "零一二三四五六七八九"
 _CN_UNITS = {"十": 10, "百": 100, "千": 1000}
 
@@ -76,16 +93,32 @@ def number_int(number: str) -> Optional[int]:
 
 
 def extract_citations(text: str, self_name: str) -> List[Citation]:
-    """Pull same-document and cross-document article references from ``text``."""
+    """Pull same-document, cross-document, and guide-section references.
+
+    ``number`` is an int for statute references (第X条) and a dotted section path
+    string (e.g. ``2.1``) for guideline section references. ``guide_chapter`` and
+    ``guide_part`` kinds carry, respectively, the same-document section reference
+    and the target chapter ordinal (报 e.g. ``"四"``) for a sibling-chapter one.
+    """
     out: List[Citation] = []
     for name, num in _CROSS_DOC_RE.findall(text or ""):
         n = cn2int(num)
         if n:
             out.append(Citation("cross", name, n))
+    # bare statute name (no 《》): 专利法第X条 / 专利法实施细则第X条
+    for name, num in _BARE_LAW_RE.findall(text or ""):
+        n = cn2int(num)
+        name = _BARE_PREFIX_SPLIT.split(name)[-1].strip()
+        if n and name:
+            out.append(Citation("cross", name, n))
     for num in _SAME_DOC_RE.findall(text or ""):
         n = cn2int(num)
         if n:
             out.append(Citation("same", self_name, n))
+    for sec in _GUIDE_CH_RE.findall(text or ""):
+        out.append(Citation("guide_chapter", self_name, sec))
+    for ch, sec in _GUIDE_PART_RE.findall(text or ""):
+        out.append(Citation("guide_part", ch, sec))
     return out
 
 
@@ -128,6 +161,56 @@ def resolve_name(name: str, doc_index: Dict[str, Dict[str, str]]) -> Optional[st
     return reverse[0] if len(reverse) == 1 else None
 
 
+def _part_chapter_of(full_name: str) -> Optional[Tuple[str, str]]:
+    """Extract the (部分, 章) ordinal pair from a guideline full_name.
+
+    A guideline full_name looks like ``专利审查指南 第二部分 实质审查·第四章 创造性``;
+    this returns ``("二", "四")``, or None for a non-guideline name.
+    """
+    pm = re.search(r"第([一二三四五六七八九十]+)部分", full_name or "")
+    cm = re.search(r"第([一二三四五六七八九十]+)章", full_name or "")
+    return (pm.group(1), cm.group(1)) if (pm and cm) else None
+
+
+def build_part_chapter_index(articles: Iterable[Dict]) -> Dict[Tuple[str, str], str]:
+    """Map ``(部分, 章) -> full_name`` for sibling-chapter resolution.
+
+    A duplicate (部分, 章) pair (two documents claiming the same slot) is dropped
+    so a reference never resolves ambiguously.
+    """
+    idx: Dict[Tuple[str, str], Optional[str]] = {}
+    for fn in {a["full_name"] for a in articles}:
+        pc = _part_chapter_of(fn)
+        if pc is None:
+            continue
+        idx[pc] = None if pc in idx else fn
+    return {k: v for k, v in idx.items() if v is not None}
+
+
+def build_core_alias(articles: Iterable[Dict]) -> Dict[str, str]:
+    """Map a document's bare core name -> full_name for citations that drop the
+    state prefix (e.g. 专利法 -> 中华人民共和国专利法). Conflicts are dropped."""
+    alias: Dict[str, Optional[str]] = {}
+    for fn in {a["full_name"] for a in articles}:
+        core = re.sub(r"^中华人民共和国", "", fn)
+        alias[core] = None if core in alias else fn
+    return {k: v for k, v in alias.items() if v is not None}
+
+
+def _resolve_bare(
+    name: str, doc_index: Dict[str, Dict[str, str]], core_alias: Dict[str, str]
+) -> Optional[str]:
+    """Resolve a possibly-bare statute name to a stored full_name.
+
+    ``专利法实施细则`` resolves on its own (unique substring), while ``专利法``
+    is a substring of both 专利法 and 专利法实施细则 so it needs the core alias.
+    """
+    resolved = resolve_name(name, doc_index)
+    if resolved:
+        return resolved
+    return core_alias.get(name)
+
+
 def pick_doc_version(full_name: str, doc_index: Dict[str, Dict[str, str]]) -> Optional[str]:
     """Choose the source_date of the current ('现行有效') version, else the newest.
 
@@ -164,32 +247,68 @@ def build_citation_plan(
     articles = list(articles)
     doc_index = build_doc_index(articles)
     article_index = build_article_index(articles)
+    # section path index for guideline cross-references (number is a dotted path)
+    section_index = {
+        (a["full_name"], a.get("source_date") or "", a["number"]): a["number"]
+        for a in articles
+    }
+    part_ch_index = build_part_chapter_index(articles)
+    core_alias = build_core_alias(articles)
     edges: Set[Tuple[Tuple[str, str, str], Tuple[str, str, str]]] = set()
 
     for a in articles:
-        src_n = number_int(a["number"])
-        if src_n is None:
-            continue
         src_name = a["full_name"]
         src_date = a.get("source_date") or ""
         src_number = a["number"]
         for cit in extract_citations(a.get("text", ""), src_name):
             if cit.kind == "same":
                 target = (src_name, src_date, cit.number)
-            else:
-                resolved = resolve_name(cit.name, doc_index)
+                tgt_number = article_index.get(target)
+                if tgt_number is None:
+                    continue
+                if (src_name, src_date, tgt_number) == (src_name, src_date, src_number):
+                    continue  # drop self-references
+                edges.add(
+                    ((src_name, src_date, src_number), (src_name, src_date, tgt_number))
+                )
+            elif cit.kind == "cross":
+                resolved = _resolve_bare(cit.name, doc_index, core_alias)
                 if resolved is None:
                     continue
                 tdate = pick_doc_version(resolved, doc_index)
                 if tdate is None:
                     continue
                 target = (resolved, tdate, cit.number)
-            tgt_number = article_index.get(target)
-            if tgt_number is None:
-                continue
-            if (target[0], target[1], tgt_number) == (src_name, src_date, src_number):
-                continue  # drop self-references
-            edges.add(((src_name, src_date, src_number), (target[0], target[1], tgt_number)))
+                tgt_number = article_index.get(target)
+                if tgt_number is None:
+                    continue
+                if (resolved, tdate, tgt_number) == (src_name, src_date, src_number):
+                    continue
+                edges.add(
+                    ((src_name, src_date, src_number), (resolved, tdate, tgt_number))
+                )
+            elif cit.kind == "guide_chapter":
+                # same-document section: 本章第 N.M 节
+                if (src_name, src_date, cit.number) in section_index and cit.number != src_number:
+                    edges.add(
+                        ((src_name, src_date, src_number), (src_name, src_date, cit.number))
+                    )
+            elif cit.kind == "guide_part":
+                # sibling chapter in the same 部分: 本部分第X章第 N.M 节
+                src_pc = _part_chapter_of(src_name)
+                if src_pc is None:
+                    continue
+                tgt_fn = part_ch_index.get((src_pc[0], cit.name))
+                if tgt_fn is None:
+                    continue
+                tdate = pick_doc_version(tgt_fn, doc_index)
+                if tdate is None:
+                    continue
+                if (tgt_fn, tdate, cit.number) in section_index:
+                    src_key = (src_name, src_date, src_number)
+                    tgt_key = (tgt_fn, tdate, cit.number)
+                    if src_key != tgt_key:
+                        edges.add((src_key, tgt_key))
 
     return sorted(edges, key=lambda e: (_article_key(*e[0]), _article_key(*e[1])))
 

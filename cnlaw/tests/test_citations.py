@@ -147,3 +147,67 @@ def test_build_citation_plan_drops_unresolvable_and_self():
         s == ("中华人民共和国土地管理法", "", "第一条") and t == ("中华人民共和国土地管理法", "", "第二条")
         for s, t in plan
     )
+
+
+def test_extract_citations_guide_everywhere_including_out_of_range():
+    # the guide uses bare law names (no 《》) and intra-guide section refs
+    text = "根据专利法第二十二条第三款的规定。参见本章第 2.1 节。适用本部分第四章第 3.1 节的规定。"
+    self_name = "专利审查指南 第二部分 实质审查·第二章 说明书和权利要求书"
+    cits = extract_citations(text, self_name)
+    assert ("cross", "专利法", 22) in cits
+    assert ("guide_chapter", self_name, "2.1") in cits
+    assert ("guide_part", "四", "3.1") in cits
+
+
+def test_extract_citations_bare_law_implementation_regulation():
+    # “专利法实施细则” must not be swallowed as a plain “专利法” reference
+    cits = extract_citations("依照专利法实施细则第五十七条的规定。", "中华人民共和国专利法实施细则")
+    assert ("cross", "专利法实施细则", 57) in cits
+    assert not any(c.number == 5 for c in cits if c.kind == "cross")  # not 第五条第...
+
+
+GUIDE_ARTICLES = [
+    {
+        "full_name": "专利审查指南 第二部分 实质审查·第二章 说明书和权利要求书",
+        "source_date": "2023-12-11",
+        "number": "2",
+        "text": "根据专利法第二十二条第三款的规定。参见本章第 2.1 节。适用本部分第四章第 3.1 节的规定。",
+        "status": "现行有效",
+    },
+    {
+        "full_name": "专利审查指南 第二部分 实质审查·第二章 说明书和权利要求书",
+        "source_date": "2023-12-11",
+        "number": "2.1",
+        "text": "说明书应当对发明作出清楚、完整的说明。",
+        "status": "现行有效",
+    },
+    {
+        "full_name": "专利审查指南 第二部分 实质审查·第四章 创造性",
+        "source_date": "2023-12-11",
+        "number": "3.1",
+        "text": "审查创造性时……",
+        "status": "现行有效",
+    },
+    {
+        "full_name": "中华人民共和国专利法",
+        "source_date": "2020-10-17",
+        "number": "第二十二条",
+        "text": "授予专利权的发明和实用新型应当具备新颖性、创造性和实用性。",
+        "status": "现行有效",
+    },
+]
+
+
+def test_build_citation_plan_guide_sections_and_bare_law():
+    plan = build_citation_plan(GUIDE_ARTICLES)
+    guide = "专利审查指南 第二部分 实质审查·第二章 说明书和权利要求书"
+    creative = "专利审查指南 第二部分 实质审查·第四章 创造性"
+    # 指南 第2节 引 专利法第二十二条（bare 法名 → 唯一全称）
+    assert (
+        (guide, "2023-12-11", "2"),
+        ("中华人民共和国专利法", "2020-10-17", "第二十二条"),
+    ) in plan
+    # 指南 第2节 引 本章 2.1（同文档节引用）
+    assert ((guide, "2023-12-11", "2"), (guide, "2023-12-11", "2.1")) in plan
+    # 指南 第2节 引 本部分第四章 3.1（跨章同部分）
+    assert ((guide, "2023-12-11", "2"), (creative, "2023-12-11", "3.1")) in plan
