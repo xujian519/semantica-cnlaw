@@ -135,13 +135,14 @@ set -a && source .env && set +a && ./.venv/bin/uvicorn cnlaw.ingest.explorer_app
 - [x] 测试 `test_vectorize.py`（7 项）——id 生成/分批/去重/元数据/续跑读档；`cnlaw/tests` 共 **31 项通过**。
 - [x] 全量向量化完成：现行有效 **48295** 条全部写入 FAISS（`ntotal=48295`，sidecar `ids=done=48295` 对齐），分批 + 断点续跑；落盘 `data/vector_store/law_articles.faiss`（198MB）+ `data/vector_meta/law_articles.json`（7.1MB）。
 - [x] 修复 FAISSIndex.load 不恢复 vector_ids 的 bug：`build_faiss_store` 从 sidecar 还原 `vector_ids`，避免续跑后 ids 错位导致查询越界。
+- [x] sidecar 缓存条文全文（`meta` 映射）+ `--backfill` 回填：检索命中直接读 sidecar 的 `text`，**省掉每条命中的 Neo4j 回查**，查询链路不再依赖 Neo4j。
 - 提速备注：oMLX 单次前向曾出现 Metal 显存溢出（长文堆叠），已把 `sub_batch` 降到 8 并加重试；可进一步换 `bge-m3-mlx-8bit`（同为 1024 维、0.59GB）提速。
 ### M4：验证 + Explorer 加载 —— 已完成（oMLX 端到端）
 
 - [x] 图加载：`cnlaw/ingest/explorer_graph.py`（从 Neo4j 直查，构造可读 id 的 entities/relationships → `ContextGraph.build_from_entities_and_relationships`）+ `cnlaw/ingest/explorer_app.py`（`create_app(session=GraphSession(law_graph))`）。启动命令改用 **`cnlaw.ingest.explorer_app:app`**（仍须 `source .env`）。
 - [x] 实测：`/api/graph/stats` 返回 `node_count=57591`（LegalDocument 1796 / LegalCategory 12 / Article 55783）、`edge_count=57797`（has_article 55783 / belongs_to_category 1876 / supersedes 138）；图构建约 **4.2s**。
 - [x] 浏览器视觉验证：系统状态卡片显示"知识节点 **57,591** / 已映射关系 **57,797**"；"知识浏览"工作区正常加载 nodes→relationships，canvas 渲染（`canvas=1`）。
-- [x] 向量检索接入（前端 `LawSearchWorkspace` + `npm run build`）—— **oMLX 方案解决段错误**：原 torch 2.13 编码非确定性段错误（`/search` 与批量重建 exit 139）靠换 oMLX（MLX/Metal，不依赖 torch）规避。`search_service`/`semantic_search`/`explorer_app` 的 `/api/cnlaw/search` 链路打通；前端 `explorer/src/workspaces/LawSearchWorkspace/` 读取 `data.results`（full_name/number/text/score/status）。
+- [x] 向量检索接入（前端 `LawSearchWorkspace` + `npm run build`）—— **oMLX 方案解决段错误**：原 torch 2.13 编码非确定性段错误（`/search` 与批量重建 exit 139）靠换 oMLX（MLX/Metal，不依赖 torch）规避。`search_service`/`semantic_search`/`explorer_app` 的 `/api/cnlaw/search` 链路打通；前端 `explorer/src/workspaces/LawSearchWorkspace/` 读取 `data.results`（full_name/number/text/score/status/source_path），卡片底部展示「溯源：源路径 · 日期 · 状态」。
 - [x] 多查询回归：12 法律域 × 3 = **34/36（94%）** Top-3 命中（如 专利法22条「创造性」、商标法34条「驳回复审救济」、工伤保险条例14条「工伤认定」、专利法42条「保护期限二十年」）。
 - [ ] 待观：57797 条边在 canvas 上的最终渲染性能。
 
@@ -164,3 +165,5 @@ set -a && source .env && set +a && ./.venv/bin/uvicorn cnlaw.ingest.explorer_app
 | 2026-08-25 | 无日期版本时效口径：无日期版视为「现行有效」（其内容与最新日期版一致）；历史日期版标「已被修订」。 |
 | 2026-08-25 | 数据源与格式口径：以 `Laws-1.0.0`（md）为主线；其源头即 flk.npc.gov.cn 下载的 docx（经 `word.py` 转换，权威性已满足），故 docx **仅作原始溯源存档、不解析**，不重开 docx 采集/解析管线。 |
 | 2026-08-25 | 向量化/检索切到 **oMLX 本地 MLX 推理**：`bge-m3-mlx-fp16`（1024 维）经 oMLX `/v1/embeddings` 提供嵌入，解决 torch 2.13 编码段错误；LLM 仍用本地 Ollama。oMLX 常驻 8000，Explorer 用 8001。 |
+| 2026-08-25 | 检索性能：sidecar `meta` 缓存条文全文 `text`，查询命中从 sidecar 反查，免逐条 Neo4j 回查；新增 `--backfill` 回填存量数据，`bin/cnlaw_regression.py` 可重复回归（含边界用例）。 |
+| 2026-08-25 | 溯源（provenance）：把 `LegalDocument.path`（源文件完整路径）写入 Neo4j 并随 sidecar `meta` 缓存，检索命中返回 `source_path`，Explorer 溯源行展示「源路径 · 日期 · 状态」，实现逐条可审计；`--backfill-path` 增量补写存量，不重跑向量化/清库。 |

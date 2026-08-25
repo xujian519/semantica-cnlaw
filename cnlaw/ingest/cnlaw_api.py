@@ -18,6 +18,7 @@ class LawHit(BaseModel):
     number: str
     text: str
     status: str
+    source_path: str
     score: float
 
 

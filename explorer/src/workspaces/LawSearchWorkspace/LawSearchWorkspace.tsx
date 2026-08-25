@@ -8,6 +8,7 @@ type Hit = {
   number: string;
   text: string;
   status: string;
+  source_path: string;
   score: number;
 };
 
@@ -104,6 +105,9 @@ export function LawSearchWorkspace() {
             </span>
           </div>
           <div style={{ color: "var(--ws-text-muted)", fontSize: 13, lineHeight: 1.55 }}>{h.text}</div>
+          <div style={{ color: "var(--ws-text-muted)", fontSize: 12, marginTop: 6, wordBreak: "break-all" }}>
+            溯源：{h.source_path || h.full_name} · {h.source_date} · {h.status}
+          </div>
         </div>
       ))}
     </div>

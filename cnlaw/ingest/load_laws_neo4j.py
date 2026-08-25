@@ -82,6 +82,7 @@ def build_import_plan(docs: List[LawDocument]) -> ImportPlan:
                 "amended_dates": doc.amended_dates,
                 "source_date": doc.source_date,
                 "file_name": doc.file_name,
+                "path": doc.path,
                 "categories": sorted(entry["categories"]),
             }
         )
@@ -146,6 +147,28 @@ def scan_and_parse(root, categories: List[str]) -> List[LawDocument]:
     return docs
 
 
+def backfill_path(store, root, categories: List[str] = DEFAULT_CATEGORIES) -> Dict[str, int]:
+    """Set ``LegalDocument.path`` (source provenance) without clearing the graph.
+
+    The parse layer already records each document's full source path; earlier
+    loads did not persist it. This re-scans metadata and sets ``path`` on the
+    existing LegalDocument nodes so provenance survives in the graph, without
+    touching the Article subgraph or the FAISS index.
+    """
+    docs = scan_and_parse(root, categories)
+    rows = [
+        {"full_name": d.full_name, "source_date": d.source_date or "", "path": d.path}
+        for d in docs
+    ]
+    store.execute_query(
+        "UNWIND $rows AS r "
+        "MATCH (d:LegalDocument {full_name:r.full_name, source_date:r.source_date}) "
+        "SET d.path=r.path",
+        {"rows": rows},
+    )
+    return {"documents": len(rows)}
+
+
 def _load_env(key: str, default: str) -> str:
     from dotenv import load_dotenv
 
@@ -201,6 +224,7 @@ def apply_import_plan(plan: ImportPlan, store) -> Dict[str, int]:
             "promulgated_date": n["promulgated_date"],
             "amended_dates": n["amended_dates"],
             "file_name": n["file_name"],
+            "path": n["path"],
         }
         for n in plan.nodes
     ]
@@ -209,7 +233,7 @@ def apply_import_plan(plan: ImportPlan, store) -> Dict[str, int]:
         "MERGE (d:LegalDocument {full_name:r.full_name, source_date:r.source_date}) "
         "SET d.name=r.name, d.legal_level=r.legal_level, d.status=r.status, "
         "d.promulgated_date=r.promulgated_date, d.amended_dates=r.amended_dates, "
-        "d.file_name=r.file_name",
+        "d.file_name=r.file_name, d.path=r.path",
         {"rows": node_rows},
     )
 
@@ -279,6 +303,8 @@ def main(argv=None) -> int:
     parser.add_argument("--clear", action="store_true", help="Delete the cnlaw subgraph before loading.")
     parser.add_argument("--no-articles", action="store_true", help="Only load L0 documents, skip Article nodes.")
     parser.add_argument("--dry-run", action="store_true", help="Build the plan and report counts without writing.")
+    parser.add_argument("--backfill-path", action="store_true",
+                        help="Set LegalDocument.path (provenance) from source tree without clearing.")
     args = parser.parse_args(argv)
 
     cats = args.categories.split(",") if args.categories else DEFAULT_CATEGORIES
@@ -297,6 +323,10 @@ def main(argv=None) -> int:
                 "articles": len(articles),
             }
         )
+        return 0
+
+    if args.backfill_path:
+        print(backfill_path(make_store(), args.root, cats))
         return 0
 
     store = make_store()
