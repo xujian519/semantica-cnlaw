@@ -35,6 +35,7 @@ class SemHit(BaseModel):
     number: str
     text: str
     status: str
+    domain: str = ""
     source_path: str
     score: float
 

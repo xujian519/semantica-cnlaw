@@ -118,6 +118,15 @@ law:number a owl:DatatypeProperty ;
     rdfs:range xsd:string ;
     rdfs:isDefinedBy <https://cnlaw.dev/law> .
 
+law:domain a owl:DatatypeProperty ;
+    rdfs:label "知识域" ;
+    rdfs:comment """The knowledge domain this document belongs to, e.g. '专利'.
+Identifies a document as part of a domain-specific knowledge base (the patent
+knowledge base) in addition to its department category.""" ;
+    rdfs:domain law:LegalDocument ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/law> .
+
 # ── Object properties ────────────────────────────────────────────────────────
 
 law:belongs_to_category a owl:ObjectProperty ;

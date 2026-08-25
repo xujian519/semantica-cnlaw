@@ -39,7 +39,7 @@ def load_law_entities_relationships(store) -> Tuple[List[Dict[str, Any]], List[D
     for r in run(
         "MATCH (d:LegalDocument) "
         "RETURN d.full_name AS fn, d.source_date AS sd, d.status AS st, "
-        "d.legal_level AS ll, d.file_name AS file"
+        "d.legal_level AS ll, d.file_name AS file, d.domain AS domain"
     ):
         entities.append(
             {
@@ -51,6 +51,7 @@ def load_law_entities_relationships(store) -> Tuple[List[Dict[str, Any]], List[D
                     "legal_level": r["ll"],
                     "source_date": r["sd"],
                     "file": r["file"],
+                    "domain": r["domain"],
                 },
             }
         )

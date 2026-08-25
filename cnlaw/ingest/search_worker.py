@@ -91,6 +91,7 @@ def query_with_backend(query: str, k: int, backend: Backend) -> List[Dict[str, A
                 "number": entry.get("number") or rest.partition("~")[2],
                 "text": entry.get("text", ""),
                 "status": status,
+                "domain": entry.get("domain") or "",
                 "source_path": entry.get("source_path", ""),
                 "score": score,
             }

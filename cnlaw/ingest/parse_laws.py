@@ -20,14 +20,16 @@ from typing import Dict, List, Optional
 from .exclusion import is_local_regulation
 
 CN_NUM = "一二三四五六七八九十百千零0-9"
-# 条文以 第X条 开头，可带「之N」子条后缀（如 第一百二十条之一），后跟全角/半角空格或正文
-_ARTICLE_RE = re.compile(rf"^第([{CN_NUM}]+)条(之[{CN_NUM}]+)?[ \u3000]*(.*)$")
+# 条文以 第X条 开头（可带 ** 粗体标记，如 **第一条**），可带「之N」子条后缀（如 第一百二十条之一），后跟全角/半角空格或正文
+_ARTICLE_RE = re.compile(rf"^\*{{0,2}}第([{CN_NUM}]+)条(之[{CN_NUM}]+)?\*{{0,2}}[ \u3000]*(.*)$")
 _YEAR_MONTH_DAY = re.compile(r"(\d{4})年(\d{1,3})月(\d{1,3})日")
-_FILE_DATE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+_FILE_DATE_DASH = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
+_FILE_DATE_COMPACT = re.compile(r"[_.-](\d{4})(\d{2})(\d{2})\b")
 _INFO_SENTINEL = "<!-- INFO END -->"
 _TITLE_RE = re.compile(r"^#\s+(.+)$")
 # 编/章/节标题、目录项等非条文行，跳过以避免误拼进条文
 _SKIP_RE = re.compile(rf"^[#\-*·]\s*|^第[{CN_NUM}]+[编章节]")
+_HORIZONTAL_RULE_RE = re.compile(r"^[-*]{3,}$")
 
 # 部门目录 -> 效力层级
 _CATEGORY_LEVEL = {
@@ -62,6 +64,7 @@ class LawDocument:
     name: str
     full_name: str
     category: str
+    domain: str = ""
     promulgated_date: Optional[str] = None
     amended_dates: List[str] = field(default_factory=list)
     legal_level: str = ""
@@ -90,32 +93,49 @@ def extract_dates(text: str) -> List[str]:
 
 
 def extract_source_date(file_name: str) -> Optional[str]:
-    """The date embedded in a filename like 刑法(2020-12-26).md."""
-    m = _FILE_DATE.search(file_name or "")
-    return m.group(1) if m else None
+    """The date embedded in a filename like 刑法(2020-12-26).md or 专利法实施细则_20231211.md."""
+    name = file_name or ""
+    m = _FILE_DATE_DASH.search(name)
+    if m:
+        return f"{m[1]}-{m[2]}-{m[3]}"
+    m = _FILE_DATE_COMPACT.search(name)
+    if m:
+        return f"{m[1]}-{m[2]}-{m[3]}"
+    return None
+
+
+def _clean_article_text(text: str) -> str:
+    """Strip markdown bold markers (and surrounding whitespace) from article text."""
+    return re.sub(r"\*\*", "", text).strip()
 
 
 def extract_articles(body: str) -> List[LawArticle]:
     """Split an article body into numbered articles.
 
-    Each article starts at a 第N条 line; following non-heading lines are
-    appended to it until the next article line. Chapter/section headings and
-    table-of-contents/obsidian fragments are skipped.
+    Each article starts at a 第N条 line (optionally wrapped in ** bold markers);
+    following non-heading lines are appended to it until the next article line.
+    Chapter/section headings, table-of-contents/obsidian fragments, and Markdown
+    horizontal rules are skipped; blockquote markers ("> ") are stripped.
     """
     articles: List[LawArticle] = []
     cur: Optional[LawArticle] = None
 
-    for line in body.splitlines():
-        if not line.strip():
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line:
             continue
-        m = _ARTICLE_RE.match(line.strip())
+        if line.startswith(">"):
+            line = line.lstrip(">").strip()
+        if _HORIZONTAL_RULE_RE.match(line):
+            continue
+        m = _ARTICLE_RE.match(line)
         if m:
             if cur is not None:
                 articles.append(cur)
             number = f"第{m.group(1)}条" + (m.group(2) or "")
-            cur = LawArticle(number=number, text=m.group(3).strip())
-        elif cur is not None and not _SKIP_RE.match(line.strip()):
-            cur.text = (cur.text + " " + line.strip()).strip()
+            cur = LawArticle(number=number, text=_clean_article_text(m.group(3)))
+        elif cur is not None and not _SKIP_RE.match(line):
+            cur.text = (cur.text + " " + _clean_article_text(line)).strip()
 
     if cur is not None:
         articles.append(cur)
@@ -136,12 +156,13 @@ def classify_legal_level(category: str, full_name: str) -> str:
     return "其他"
 
 
-def parse_law_markdown(path, category: str) -> LawDocument:
+def parse_law_markdown(path, category: str, domain: str = "") -> LawDocument:
     """Parse one legal Markdown file into a LawDocument.
 
     Args:
         path: Path to the .md file (str or Path).
         category: The department category directory the file lives in.
+        domain: Optional knowledge-domain tag (e.g. '专利') for the patent corpus.
     """
     path = Path(path)
     text = _strip_obsidian(path.read_text(encoding="utf-8"))
@@ -153,28 +174,33 @@ def parse_law_markdown(path, category: str) -> LawDocument:
     if not full_name:
         full_name = path.stem
 
-    # Split at the INFO sentinel; history is what precedes it, and for dated
-    # files a bracketed history paragraph follows it until the first heading.
     title_idx = next((i for i, line in enumerate(lines) if _TITLE_RE.match(line)), 0)
-    info_idx = next(
-        (i for i, line in enumerate(lines) if _INFO_SENTINEL in line), len(lines)
-    )
-    pre_history = lines[title_idx + 1 : info_idx]
+    tail = lines[title_idx + 1 :]
 
-    post = lines[info_idx + 1 :] if info_idx < len(lines) else []
-    first_heading = next((i for i, line in enumerate(post) if line.startswith("#")), len(post))
-    post_history = post[:first_heading]
-    history_text = "\n".join(pre_history + post_history)
+    # The body starts at the first article line or the first heading, whichever
+    # comes first. Everything before it (ISO-enacting/amendment history, and for
+    # dated files a bracketed history paragraph, plus any preamble) is the
+    # history text used to derive promulgation/amendment dates. This handles
+    # flat documents (no heading after the INFO sentinel, e.g. judicial
+    # interpretations) as well as the chaptered dated documents.
+    body_start = len(tail)
+    for i, line in enumerate(tail):
+        s = line.strip()
+        if s.startswith("#") or _ARTICLE_RE.match(s):
+            body_start = i
+            break
+    history_seg = [line for line in tail[:body_start] if _INFO_SENTINEL not in line]
+    history_text = "\n".join(history_seg)
+    body = "\n".join(tail[body_start:])
 
     dates = extract_dates(history_text)
     promulgated_date = min(dates) if dates else None
     amended_dates = sorted({d for d in dates if d != promulgated_date})
-
-    body = "\n".join(post[first_heading:])
     articles = extract_articles(body)
 
     base = re.sub(r"\.md$", "", file_name)
     base = re.sub(r"\(\d{4}-\d{2}-\d{2}\)$", "", base)
+    base = re.sub(r"_\d{8}$", "", base)
     name = base or full_name
     source_date = extract_source_date(file_name)
 
@@ -182,6 +208,7 @@ def parse_law_markdown(path, category: str) -> LawDocument:
         name=name,
         full_name=full_name,
         category=category,
+        domain=domain,
         promulgated_date=promulgated_date,
         amended_dates=amended_dates,
         legal_level=classify_legal_level(category, full_name),

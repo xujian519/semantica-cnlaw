@@ -61,9 +61,11 @@ def build_import_plan(docs: List[LawDocument]) -> ImportPlan:
         key = _doc_key(doc)
         entry = by_key.get(key)
         if entry is None:
-            entry = {"doc": doc, "categories": set()}
+            entry = {"doc": doc, "categories": set(), "domains": set()}
             by_key[key] = entry
         entry["categories"].add(doc.category)
+        if doc.domain:
+            entry["domains"].add(doc.domain)
 
     unique_docs = [e["doc"] for e in by_key.values()]
     status = compute_effective_status(unique_docs)
@@ -83,6 +85,7 @@ def build_import_plan(docs: List[LawDocument]) -> ImportPlan:
                 "source_date": doc.source_date,
                 "file_name": doc.file_name,
                 "path": doc.path,
+                "domain": ",".join(sorted(entry["domains"])),
                 "categories": sorted(entry["categories"]),
             }
         )
@@ -225,6 +228,7 @@ def apply_import_plan(plan: ImportPlan, store) -> Dict[str, int]:
             "amended_dates": n["amended_dates"],
             "file_name": n["file_name"],
             "path": n["path"],
+            "domain": n["domain"],
         }
         for n in plan.nodes
     ]
@@ -233,7 +237,7 @@ def apply_import_plan(plan: ImportPlan, store) -> Dict[str, int]:
         "MERGE (d:LegalDocument {full_name:r.full_name, source_date:r.source_date}) "
         "SET d.name=r.name, d.legal_level=r.legal_level, d.status=r.status, "
         "d.promulgated_date=r.promulgated_date, d.amended_dates=r.amended_dates, "
-        "d.file_name=r.file_name, d.path=r.path",
+        "d.file_name=r.file_name, d.path=r.path, d.domain=r.domain",
         {"rows": node_rows},
     )
 

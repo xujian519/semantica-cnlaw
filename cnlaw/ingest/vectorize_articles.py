@@ -21,7 +21,7 @@ DEFAULT_FAISS_PATH = "./data/vector_store/law_articles.faiss"
 DEFAULT_META_PATH = "./data/vector_meta/law_articles.json"
 DEFAULT_DIMENSION = 1024  # BAAI/bge-m3
 
-_FIELDS = ("full_name", "source_date", "number", "category", "status", "text", "source_path")
+_FIELDS = ("full_name", "source_date", "number", "category", "status", "domain", "text", "source_path")
 
 
 def make_id(record: Dict[str, Any]) -> str:
@@ -34,8 +34,11 @@ def build_metadata(record: Dict[str, Any]) -> Dict[str, Any]:
 
     Keeping ``text`` here lets the search path return hits without a per-hit
     Neo4j round-trip; the FAISS index file does not persist metadata.
+    ``domain`` defaults to an empty string so a missing value serializes cleanly.
     """
-    return {field: record.get(field) for field in _FIELDS}
+    meta = {field: record.get(field) for field in _FIELDS}
+    meta["domain"] = record.get("domain") or ""
+    return meta
 
 
 def chunk(rows: Iterable, size: int) -> Iterable[List]:
@@ -68,7 +71,8 @@ def fetch_articles(store, status: Optional[str] = None) -> List[Dict[str, Any]]:
     result = store.execute_query(
         "MATCH (d:LegalDocument)-[:has_article]->(a:Article) " + where + " "
         "RETURN d.full_name AS full_name, d.source_date AS source_date, "
-        "a.number AS number, a.text AS text, d.status AS status, d.path AS source_path, "
+        "a.number AS number, a.text AS text, d.status AS status, d.domain AS domain, "
+        "d.path AS source_path, "
         "head([(d)-[:belongs_to_category]->(c) | c.name]) AS category",
         params,
     )

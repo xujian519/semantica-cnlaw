@@ -8,6 +8,7 @@ type Hit = {
   number: string;
   text: string;
   status: string;
+  domain: string;
   source_path: string;
   score: number;
 };
@@ -100,8 +101,22 @@ export function LawSearchWorkspace() {
               <FileText size={14} />
               {h.full_name} · {h.number}
             </span>
-            <span style={{ color: "var(--ws-text-muted)", fontSize: 12, whiteSpace: "nowrap" }}>
-              {h.score.toFixed(3)} · {h.status}
+            <span style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--ws-text-muted)", fontSize: 12, whiteSpace: "nowrap" }}>
+              {h.score.toFixed(3)}
+              {h.domain && (
+                <span
+                  style={{
+                    padding: "1px 6px",
+                    borderRadius: 6,
+                    border: "1px solid var(--ws-border-strong)",
+                    background: "var(--ws-accent-soft)",
+                    color: "var(--ws-accent)",
+                  }}
+                >
+                  {h.domain}
+                </span>
+              )}
+              · {h.status}
             </span>
           </div>
           <div style={{ color: "var(--ws-text-muted)", fontSize: 13, lineHeight: 1.55 }}>{h.text}</div>

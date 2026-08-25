@@ -36,7 +36,7 @@ def test_make_id_handles_missing_source_date():
 
 def test_build_metadata_keeps_fields():
     meta = build_metadata(_rec())
-    assert set(meta) == {"full_name", "source_date", "number", "category", "status", "text", "source_path"}
+    assert set(meta) == {"full_name", "source_date", "number", "category", "status", "domain", "text", "source_path"}
     assert meta["number"] == "第一条"
     assert meta["text"].startswith("为了惩罚犯罪")
     assert meta["source_path"] == "/raw/刑法(2020-12-26).md"
