@@ -108,6 +108,19 @@ def load_law_entities_relationships(store) -> Tuple[List[Dict[str, Any]], List[D
             }
         )
 
+    for r in run(
+        "MATCH (a:Article)-[:cites]->(b:Article) "
+        "RETURN a.full_name AS afn, a.source_date AS asd, a.number AS anum, "
+        "b.full_name AS bfn, b.source_date AS bsd, b.number AS bnum"
+    ):
+        relationships.append(
+            {
+                "source_id": _art_id(r["afn"], r["asd"], r["anum"]),
+                "target_id": _art_id(r["bfn"], r["bsd"], r["bnum"]),
+                "type": "cites",
+            }
+        )
+
     return entities, relationships
 
 

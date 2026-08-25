@@ -23,6 +23,18 @@ from .vectorize_articles import (
 
 Backend = Tuple[Any, Any]
 
+# A "已被修订" (revised/superseded) hit is down-weighted so current versions rank first.
+DOWNWEIGHT_REVISED = 0.5
+_CURRENT = "现行有效"
+
+
+def _rank_hits(hits: List[Dict[str, Any]], k: int) -> List[Dict[str, Any]]:
+    """Sort hits so current ('现行有效') articles rank first, then by score,
+    and truncate to the requested ``k``. Revised articles are still returned
+    (marked by their status) but never outrank a current version."""
+    hits.sort(key=lambda h: (h["status"] != _CURRENT, -h["score"]))
+    return hits[:k]
+
 
 @lru_cache(maxsize=1)
 def load_ordered_ids() -> List[str]:
@@ -54,27 +66,36 @@ def query_with_backend(query: str, k: int, backend: Backend) -> List[Dict[str, A
     """
     embedder, faiss_store = backend
     vector = embedder.embed_batch([query])
-    distances, indices = faiss_store.index.index.search(vector, k)
+    # Fetch a wider window so a down-weighted revised hit does not starve the set
+    # of current-version results before ranking.
+    raw_k = max(k, k * 3)
+    distances, indices = faiss_store.index.index.search(vector, raw_k)
     vec_ids = load_ordered_ids()
     meta = load_meta()
 
     hits: List[Dict[str, Any]] = []
     for j, i in enumerate(indices[0]):
+        if i < 0:
+            continue  # FAISS pads with -1 when raw_k exceeds the index size
         vid = vec_ids[i]
         entry = meta.get(vid, {})
         rest = entry.get("source_date") or vid.rpartition("@")[2]
+        status = entry.get("status", "")
+        score = float(distances[0][j])
+        if status == "已被修订":
+            score *= DOWNWEIGHT_REVISED
         hits.append(
             {
                 "full_name": entry.get("full_name") or vid.rpartition("@")[0],
                 "source_date": entry.get("source_date") or rest.partition("~")[0],
                 "number": entry.get("number") or rest.partition("~")[2],
                 "text": entry.get("text", ""),
-                "status": entry.get("status", ""),
+                "status": status,
                 "source_path": entry.get("source_path", ""),
-                "score": float(distances[0][j]),
+                "score": score,
             }
         )
-    return hits
+    return _rank_hits(hits, k)
 
 
 def collect_hits(query: str, k: int = 8) -> List[Dict[str, Any]]:

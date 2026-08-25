@@ -167,3 +167,5 @@ set -a && source .env && set +a && ./.venv/bin/uvicorn cnlaw.ingest.explorer_app
 | 2026-08-25 | 向量化/检索切到 **oMLX 本地 MLX 推理**：`bge-m3-mlx-fp16`（1024 维）经 oMLX `/v1/embeddings` 提供嵌入，解决 torch 2.13 编码段错误；LLM 仍用本地 Ollama。oMLX 常驻 8000，Explorer 用 8001。 |
 | 2026-08-25 | 检索性能：sidecar `meta` 缓存条文全文 `text`，查询命中从 sidecar 反查，免逐条 Neo4j 回查；新增 `--backfill` 回填存量数据，`bin/cnlaw_regression.py` 可重复回归（含边界用例）。 |
 | 2026-08-25 | 溯源（provenance）：把 `LegalDocument.path`（源文件完整路径）写入 Neo4j 并随 sidecar `meta` 缓存，检索命中返回 `source_path`，Explorer 溯源行展示「源路径 · 日期 · 状态」，实现逐条可审计；`--backfill-path` 增量补写存量，不重跑向量化/清库。 |
+| 2026-08-25 | 法条引用关系：从条文正文提取「本法第X条」（同文档）与「《某法》第X条」（跨文档）引用，经中文数字转阿拉伯 + 简称→全称匹配（唯一子串）+ 现行版选择解析，建 Article→Article `cites` 边（2953 条）；`cnlaw/ingest/citations.py` 为纯函数可测，Explorer 加载 `cites` 类型边（图边 57,797→60,750）。 |
+| 2026-08-25 | 失效法律追踪：把「已被修订」7488 条也 `--status 已被修订` 增量向量化进检索池（FAISS 55783 条，sidecar `status` 如实标记）；查询命中「已被修订」时 `score×0.5` 降权，并按「现行有效优先（分组）+ 分数降序」排序（`_rank_hits`），status 明确返回供前端标记——现行有效永远排在被修订前。 |
