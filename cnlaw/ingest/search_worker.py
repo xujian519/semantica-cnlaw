@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -20,6 +21,16 @@ from .vectorize_articles import (
     build_embedder,
     build_faiss_store,
 )
+from .vectorize_decisions import (
+    DEFAULT_FAISS_PATH as DECISION_FAISS_PATH,
+    DEFAULT_META_PATH as DECISION_META_PATH,
+    build_faiss_store as build_decision_faiss_store,
+)
+from .vectorize_judgments import (
+    DEFAULT_FAISS_PATH as JUDGMENT_FAISS_PATH,
+    DEFAULT_META_PATH as JUDGMENT_META_PATH,
+    build_faiss_store as build_judgment_faiss_store,
+)
 
 Backend = Tuple[Any, Any]
 
@@ -27,13 +38,74 @@ Backend = Tuple[Any, Any]
 DOWNWEIGHT_REVISED = 0.5
 _CURRENT = "现行有效"
 
+# Chinese and Arabic article/paragraph numerals coexist across the corpus:
+# decisions cite 第22条第3款, judgments and stored Article nodes cite Chinese
+# numerals. Normalize both sides (see cn_num) so a ``ground`` match and the
+# graph by-article queries agree. ``_cn_*`` aliases keep the historical
+# names used by callers/tests.
+from .cn_num import cn_num_to_int as _cn_num_to_int
+from .cn_num import cn_numerals_to_arabic as _cn_numerals_to_arabic
+
+
+def _authority_tier(category: str | None) -> int:
+    """Authority tier of a law-article hit, for precedence-aware ranking.
+
+    Source authority, highest first: 法律法规/司法解释/部门规章 (1) →
+    审查指南 (2) → 判例 (3, in the separate decision/judgment indices) →
+    书籍 (4, explanatory only). Within the single /search index only 1/2/4
+    appear; 判例 is its own endpoint. Newest-effective still outranks score.
+    """
+    cat = (category or "").strip()
+    if cat == "书籍":
+        return 4
+    if cat == "审查指南":
+        return 2
+    return 1  # laws / regulations / judicial interpretations / field categories
+
 
 def _rank_hits(hits: List[Dict[str, Any]], k: int) -> List[Dict[str, Any]]:
-    """Sort hits so current ('现行有效') articles rank first, then by score,
-    and truncate to the requested ``k``. Revised articles are still returned
-    (marked by their status) but never outrank a current version."""
-    hits.sort(key=lambda h: (h["status"] != _CURRENT, -h["score"]))
+    """Sort hits by authority tier, then current-version-first, then score.
+
+    A higher-authority source (法规 > 审查指南 > 书籍) always ranks before a
+    lower one regardless of embedding score, so a 书籍 excerpt never outranks
+    a statute or guideline on the same query. Truncate to the requested ``k``.
+    """
+    hits.sort(key=lambda h: (_authority_tier(h.get("category")),
+                             h.get("status") != _CURRENT,
+                             -h.get("score", 0)))
     return hits[:k]
+
+
+def _field_filter(hits, *, ground=None, ipc=None, result=None, case_type=None):
+    """Post-filter semantic candidate hits by precedent metadata (pure, offline).
+
+    ``ground`` is a substring match on the cited legal basis (e.g. "第22条第3款");
+    ``ipc`` is a prefix match on any classification code the decision carries
+    (codes are separated by ``,`` / Chinese ``、`` / ``;`` / ``/`` / whitespace);
+    ``result`` and ``case_type`` are exact after stripping surrounding space.
+    A field the corpus did not populate simply fails its filter, which is honest
+    for e.g. judgments, whose sidecar carries no IPC.
+    """
+    if ground is None and ipc is None and result is None and case_type is None:
+        return hits
+    if ground is not None:
+        ground = _cn_numerals_to_arabic(ground)
+    out: List[Dict[str, Any]] = []
+    for h in hits:
+        if ground is not None:
+            basis = _cn_numerals_to_arabic(h.get("legal_basis") or "")
+            if ground not in basis:
+                continue
+        if ipc is not None:
+            codes = re.split(r"[,、，;；/\s]+", h.get("ipc") or "")
+            if not any(c and c.upper().startswith(ipc.upper()) for c in codes):
+                continue
+        if result is not None and (h.get("decision_result") or "").strip() != result.strip():
+            continue
+        if case_type is not None and (h.get("case_type") or "").strip() != case_type.strip():
+            continue
+        out.append(h)
+    return out
 
 
 @lru_cache(maxsize=1)
@@ -92,6 +164,8 @@ def query_with_backend(query: str, k: int, backend: Backend) -> List[Dict[str, A
                 "text": entry.get("text", ""),
                 "status": status,
                 "domain": entry.get("domain") or "",
+                "category": entry.get("category") or "",
+                "tier": _authority_tier(entry.get("category")),
                 "source_path": entry.get("source_path", ""),
                 "score": score,
             }
@@ -99,9 +173,130 @@ def query_with_backend(query: str, k: int, backend: Backend) -> List[Dict[str, A
     return _rank_hits(hits, k)
 
 
-def collect_hits(query: str, k: int = 8) -> List[Dict[str, Any]]:
-    """Load the backend and run a query (used by the standalone CLI)."""
-    return query_with_backend(query, k, load_backend())
+def load_decision_ordered_ids() -> List[str]:
+    """Insertion-order ids for the decision FAISS index (from the sidecar)."""
+    return json.loads(Path(DECISION_META_PATH).read_text(encoding="utf-8")).get("ids", [])
+
+
+def load_decision_meta() -> Dict[str, Dict[str, Any]]:
+    """id->metadata for decisions (incl. composed text), from the sidecar."""
+    return json.loads(Path(DECISION_META_PATH).read_text(encoding="utf-8")).get("meta", {})
+
+
+def load_decision_backend() -> Backend:
+    """Load the embedder and the decision FAISS index (queries need no Neo4j)."""
+    return build_embedder(), build_decision_faiss_store(DECISION_FAISS_PATH, DECISION_META_PATH)
+
+
+def query_decisions(query: str, k: int, backend: Backend, *,
+                    ground: str | None = None, ipc: str | None = None,
+                    result: str | None = None, case_type: str | None = None) -> List[Dict[str, Any]]:
+    """Run a semantic query against the decision index, resolved from the sidecar.
+
+    Optional ``ground`` / ``ipc`` / ``result`` / ``case_type`` post-filter the
+    semantic candidates by precedent metadata (see :func:`_field_filter`). The
+    FAISS window widens when a filter is present so a narrow filter does not
+    starve the result set.
+    """
+    embedder, faiss_store = backend
+    vector = embedder.embed_batch([query])
+    filtered = ground is not None or ipc is not None or result is not None or case_type is not None
+    distances, indices = faiss_store.index.index.search(vector, max(k, k * (10 if filtered else 3)))
+    vec_ids = load_decision_ordered_ids()
+    meta = load_decision_meta()
+
+    hits: List[Dict[str, Any]] = []
+    for j, i in enumerate(indices[0]):
+        if i < 0:
+            continue
+        vid = vec_ids[i]
+        entry = meta.get(vid, {})
+        hits.append(
+            {
+                "decision_id": entry.get("decision_id", ""),
+                "case_number": entry.get("case_number", ""),
+                "case_type": entry.get("case_type", ""),
+                "decision_result": entry.get("decision_result", ""),
+                "decision_points": entry.get("decision_points", ""),
+                "legal_basis": entry.get("legal_basis", ""),
+                "application_number": entry.get("application_number", ""),
+                "invention_name": entry.get("invention_name", ""),
+                "ipc": entry.get("ipc", ""),
+                "source_path": entry.get("source_path", ""),
+                "source_file": entry.get("source_file", ""),
+                "text": entry.get("text", ""),
+                "score": float(distances[0][j]),
+            }
+        )
+    return _field_filter(hits, ground=ground, ipc=ipc, result=result, case_type=case_type)[:k]
+
+
+def collect_decision_hits(query: str, k: int = 8) -> List[Dict[str, Any]]:
+    """Load the decision backend and run a query (standalone CLI)."""
+    return query_decisions(query, k, load_decision_backend())
+
+
+def load_judgment_ordered_ids() -> List[str]:
+    """Insertion-order ids for the judgment FAISS index (from the sidecar)."""
+    return json.loads(Path(JUDGMENT_META_PATH).read_text(encoding="utf-8")).get("ids", [])
+
+
+def load_judgment_meta() -> Dict[str, Dict[str, Any]]:
+    """id->metadata for judgments (incl. composed text), from the sidecar."""
+    return json.loads(Path(JUDGMENT_META_PATH).read_text(encoding="utf-8")).get("meta", {})
+
+
+def load_judgment_backend() -> Backend:
+    """Load the embedder and the judgment FAISS index (queries need no Neo4j)."""
+    return build_embedder(), build_judgment_faiss_store(JUDGMENT_FAISS_PATH, JUDGMENT_META_PATH)
+
+
+def query_judgments(query: str, k: int, backend: Backend, *,
+                    ground: str | None = None, ipc: str | None = None,
+                    result: str | None = None, case_type: str | None = None) -> List[Dict[str, Any]]:
+    """Run a semantic query against the judgment index, resolved from the sidecar.
+
+    Same optional metadata post-filter as :func:`query_decisions`. The judgment
+    sidecar carries no IPC, so ``ipc`` succeeds only for non-empty sidecar IPC,
+    which judgments do not have; ``ground`` relies on the `legal_basis` field that
+    :func:`~cnlaw.ingest.vectorize_judgments.backfill_fields` populates.
+    """
+    embedder, faiss_store = backend
+    vector = embedder.embed_batch([query])
+    filtered = ground is not None or ipc is not None or result is not None or case_type is not None
+    distances, indices = faiss_store.index.index.search(vector, max(k, k * (10 if filtered else 3)))
+    vec_ids = load_judgment_ordered_ids()
+    meta = load_judgment_meta()
+
+    hits: List[Dict[str, Any]] = []
+    for j, i in enumerate(indices[0]):
+        if i < 0:
+            continue
+        vid = vec_ids[i]
+        entry = meta.get(vid, {})
+        hits.append(
+            {
+                "judgment_id": entry.get("judgment_id", ""),
+                "case_number": entry.get("case_number", ""),
+                "case_type": entry.get("case_type", ""),
+                "cause": entry.get("cause", ""),
+                "court": entry.get("court", ""),
+                "decision_result": entry.get("decision_result", ""),
+                "legal_basis": entry.get("legal_basis", ""),
+                "invention_name": entry.get("invention_name", ""),
+                "application_number": entry.get("application_number", ""),
+                "source_path": entry.get("source_path", ""),
+                "source_file": entry.get("source_file", ""),
+                "text": entry.get("text", ""),
+                "score": float(distances[0][j]),
+            }
+        )
+    return _field_filter(hits, ground=ground, ipc=ipc, result=result, case_type=case_type)[:k]
+
+
+def collect_judgment_hits(query: str, k: int = 8) -> List[Dict[str, Any]]:
+    """Load the judgment backend and run a query (standalone CLI)."""
+    return query_judgments(query, k, load_judgment_backend())
 
 
 def main(argv=None) -> int:
