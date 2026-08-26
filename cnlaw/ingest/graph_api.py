@@ -85,6 +85,11 @@ def ground(article: str = Query(..., description="法条引用，如 专利法�
            ipc: Optional[str] = Query(None, description="IPC 分类前缀（仅决定）"),
            k: int = Query(30, ge=1, le=200),
            offset: int = Query(0, ge=0)) -> GroundResponse:
+    # Normalize empty strings to None: the judgments branch below is gated on
+    # ``ipc is None``, so a caller passing ``ipc=`` (empty string) would silently
+    # drop judgments. Same for ``law`` so its CONTAINS filter stays optional.
+    law = law or None
+    ipc = ipc or None
     n = extract_article_number(article)
     if n is None:
         raise HTTPException(400, f"无法从 {article!r} 解析出条号（需含 第X条）")
