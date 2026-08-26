@@ -12,8 +12,11 @@ from __future__ import annotations
 from semantica.explorer.app import create_app
 from semantica.explorer.session import GraphSession
 
+from .case_api import router as case_router
 from .cnlaw_api import router as cnlaw_router
 from .explorer_graph import build_law_context_graph
+from .graph_api import router as graph_router
+from .ipc_api import router as ipc_router
 
 
 def build_session() -> GraphSession:
@@ -30,4 +33,7 @@ _catchall = next(
 )
 app.router.routes.remove(_catchall)
 app.include_router(cnlaw_router)
+app.include_router(ipc_router)
+app.include_router(graph_router)
+app.include_router(case_router)
 app.router.routes.append(_catchall)
