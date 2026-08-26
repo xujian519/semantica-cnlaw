@@ -1,3 +1,4 @@
+import i18n from "../../i18n";
 import type { GraphLoadPhase, GraphLoadProgress, GraphLoadProgressKind, GraphLayoutSource, GraphLayoutState } from "./types";
 
 export const GRAPH_LOAD_STAGE_SEQUENCE: Exclude<GraphLoadPhase, "ready">[] = [
@@ -12,39 +13,39 @@ export const GRAPH_LOAD_STAGE_SEQUENCE: Exclude<GraphLoadPhase, "ready">[] = [
 export function getGraphLoadTitle(phase: GraphLoadPhase): string {
   switch (phase) {
     case "bootstrapping":
-      return "Preparing graph session";
+      return i18n.t("graphLoading.titlePreparing");
     case "fetching_nodes":
-      return "Loading nodes";
+      return i18n.t("graphLoading.titleLoadingNodes");
     case "fetching_edges":
-      return "Loading relationships";
+      return i18n.t("graphLoading.titleLoadingRelationships");
     case "computing_styling":
-      return "Computing node styling";
+      return i18n.t("graphLoading.titleStyling");
     case "hydrating_scene":
-      return "Hydrating graph scene";
+      return i18n.t("graphLoading.titleHydrating");
     case "stabilizing_layout":
-      return "Stabilizing layout";
+      return i18n.t("graphLoading.titleStabilizing");
     case "ready":
     default:
-      return "Graph ready";
+      return i18n.t("graphLoading.titleReady");
   }
 }
 
 export function getGraphLoadStageLabel(phase: Exclude<GraphLoadPhase, "ready">): string {
   switch (phase) {
     case "bootstrapping":
-      return "Prepare";
+      return i18n.t("graphLoading.stagePrepare");
     case "fetching_nodes":
-      return "Nodes";
+      return i18n.t("graphLoading.stageNodes");
     case "fetching_edges":
-      return "Relations";
+      return i18n.t("graphLoading.stageRelations");
     case "computing_styling":
-      return "Styling";
+      return i18n.t("graphLoading.stageStyling");
     case "hydrating_scene":
-      return "Scene";
+      return i18n.t("graphLoading.stageScene");
     case "stabilizing_layout":
-      return "Layout";
+      return i18n.t("graphLoading.stageLayout");
     default:
-      return "Stage";
+      return i18n.t("graphLoading.stageFallback");
   }
 }
 

@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import i18n from "../../../i18n";
 
 import type { GraphPlugin } from "./types";
 
@@ -13,8 +14,8 @@ export const legendPlugin: GraphPlugin = {
   toolbarItems: (context) => [
     {
       id: "legend-toggle",
-      label: "Legend",
-      title: "Toggle semantic legend",
+      label: i18n.t("legend.label"),
+      title: i18n.t("legend.toggleTitle"),
       active: context.isPanelOpen(LEGEND_PANEL_ID),
       order: 20,
       onClick: () => context.dispatchAction({ type: "togglePanel", panelId: LEGEND_PANEL_ID }),
@@ -43,7 +44,7 @@ export const legendPlugin: GraphPlugin = {
 
     return {
       id: LEGEND_PANEL_ID,
-      title: "Legend",
+      title: i18n.t("legend.label"),
       placement: "bottom",
       order: 10,
       defaultOpen: false,
@@ -51,7 +52,7 @@ export const legendPlugin: GraphPlugin = {
       preferredHeight: 220,
       content: (
         <div style={panelBodyStyle}>
-          <div style={panelEyebrowStyle}>Semantic groups</div>
+          <div style={panelEyebrowStyle}>{i18n.t("legend.semanticGroups")}</div>
           {items.length ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {items.map((item) => (
@@ -65,13 +66,13 @@ export const legendPlugin: GraphPlugin = {
                   />
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={rowTitleStyle}>{item.group}</div>
-                    <div style={rowMetaStyle}>{item.count.toLocaleString()} nodes</div>
+                    <div style={rowMetaStyle}>{i18n.t("legend.nodes", { count: item.count })}</div>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div style={emptyTextStyle}>Legend will populate when the graph metadata is available.</div>
+            <div style={emptyTextStyle}>{i18n.t("legend.empty")}</div>
           )}
         </div>
       ),

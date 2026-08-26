@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import i18n from "../../../i18n";
 
 import type { GraphPlugin } from "./types";
 
@@ -14,9 +15,9 @@ function maxWeightBetween(graphRef: any, sourceId: string, targetId: string): nu
 }
 
 function formatNeighborMeta(neighbor: { nodeType: string; degree: number; weight: number }) {
-  const parts = [neighbor.nodeType, `degree ${neighbor.degree}`];
+  const parts = [neighbor.nodeType, i18n.t("neighborhood.degree", { count: neighbor.degree })];
   if (neighbor.weight > 0) {
-    parts.push(`weight ${neighbor.weight.toFixed(2)}`);
+    parts.push(i18n.t("neighborhood.weight", { value: neighbor.weight.toFixed(2) }));
   }
   return parts.join(" · ");
 }
@@ -29,8 +30,8 @@ export const neighborhoodPanelPlugin: GraphPlugin = {
   toolbarItems: (context) => [
     {
       id: "neighborhood-toggle",
-      label: "Neighbors",
-      title: "Toggle neighborhood panel",
+      label: i18n.t("neighborhood.title"),
+      title: i18n.t("neighborhood.toggleTitle"),
       active: context.isPanelOpen(NEIGHBORHOOD_PANEL_ID),
       order: 30,
       onClick: () => context.dispatchAction({ type: "togglePanel", panelId: NEIGHBORHOOD_PANEL_ID }),
@@ -46,13 +47,13 @@ export const neighborhoodPanelPlugin: GraphPlugin = {
     if (!selected) {
       return {
         id: NEIGHBORHOOD_PANEL_ID,
-        title: "Neighborhood",
+        title: i18n.t("neighborhood.title"),
         placement: "bottom",
         order: 20,
         defaultOpen: false,
         preferredWidth: 360,
         preferredHeight: 260,
-        content: <div style={emptyTextStyle}>Select a node to inspect its local neighborhood.</div>,
+        content: <div style={emptyTextStyle}>{i18n.t("neighborhood.selectNodeHint")}</div>,
       };
     }
 
@@ -91,7 +92,7 @@ export const neighborhoodPanelPlugin: GraphPlugin = {
 
     return {
       id: NEIGHBORHOOD_PANEL_ID,
-      title: "Neighborhood",
+      title: i18n.t("neighborhood.title"),
       placement: "bottom",
       order: 20,
       defaultOpen: false,
@@ -101,7 +102,7 @@ export const neighborhoodPanelPlugin: GraphPlugin = {
         <div style={panelBodyStyle}>
           <div style={panelEyebrowStyle}>{selected.label}</div>
           <div style={summaryStyle}>
-            {selected.neighborCount.toLocaleString()} direct neighbors in the full graph
+            {i18n.t("neighborhood.directNeighbors", { count: selected.neighborCount })}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
@@ -110,7 +111,7 @@ export const neighborhoodPanelPlugin: GraphPlugin = {
               disabled={!selected.canCollapseNeighborhood || selected.isNeighborhoodCollapsed}
               style={controlButtonStyle}
             >
-              Collapse Neighborhood
+              {i18n.t("neighborhood.collapse")}
             </button>
             <button
               type="button"
@@ -118,17 +119,17 @@ export const neighborhoodPanelPlugin: GraphPlugin = {
               disabled={!selected.isNeighborhoodCollapsed}
               style={controlButtonStyle}
             >
-              Expand Neighborhood
+              {i18n.t("neighborhood.expand")}
             </button>
           </div>
           {hiddenNeighborCount > 0 ? (
             <div style={summaryStyle}>
-              {hiddenNeighborCount.toLocaleString()} lower-priority neighbors are collapsed in the current view.
+              {i18n.t("neighborhood.collapsedNeighbors", { count: hiddenNeighborCount })}
             </div>
           ) : null}
           {aggregatedEdgeCount > 0 ? (
             <div style={summaryStyle}>
-              {aggregatedEdgeCount.toLocaleString()} aggregated structural bundle{aggregatedEdgeCount === 1 ? "" : "s"} visible.
+              {i18n.t("neighborhood.aggregatedBundles", { count: aggregatedEdgeCount })}
             </div>
           ) : null}
           {neighbors.length ? (
@@ -155,7 +156,7 @@ export const neighborhoodPanelPlugin: GraphPlugin = {
               ))}
             </div>
           ) : (
-            <div style={emptyTextStyle}>No direct neighbors are available for this node.</div>
+            <div style={emptyTextStyle}>{i18n.t("neighborhood.noNeighbors")}</div>
           )}
         </div>
       ),

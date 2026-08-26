@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   BookMarked,
   GitMerge,
@@ -24,13 +25,13 @@ export type OntologyHubTab =
 
 const TAB_PARAM = "ontologyTab";
 
-const TABS: { id: OntologyHubTab; label: string; icon: typeof GitMerge }[] = [
-  { id: "registry", label: "Registry", icon: BookMarked },
-  { id: "editor", label: "Editor", icon: Sliders },
-  { id: "versions", label: "Versions", icon: Layers },
-  { id: "alignments", label: "Alignments", icon: GitMerge },
-  { id: "health", label: "Health", icon: HeartPulse },
-  { id: "shacl", label: "SHACL", icon: Shield },
+const TABS: { id: OntologyHubTab; labelKey: string; icon: typeof GitMerge }[] = [
+  { id: "registry", labelKey: "ontologyHub.tabRegistry", icon: BookMarked },
+  { id: "editor", labelKey: "ontologyHub.tabEditor", icon: Sliders },
+  { id: "versions", labelKey: "ontologyHub.tabVersions", icon: Layers },
+  { id: "alignments", labelKey: "ontologyHub.tabAlignments", icon: GitMerge },
+  { id: "health", labelKey: "ontologyHub.tabHealth", icon: HeartPulse },
+  { id: "shacl", labelKey: "ontologyHub.tabShacl", icon: Shield },
 ];
 
 function readTabParam(): OntologyHubTab {
@@ -59,6 +60,7 @@ interface OntologyWorkspaceProps {
 }
 
 export function OntologyWorkspace({ onJumpToGraphNode }: OntologyWorkspaceProps) {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<OntologyHubTab>(readTabParam);
 
   useEffect(() => {
@@ -98,7 +100,7 @@ export function OntologyWorkspace({ onJumpToGraphNode }: OntologyWorkspaceProps)
     <div className="ws-page">
       {/* Internal sub-tab bar */}
       <div style={{ display: "flex", gap: 4, padding: "8px 16px", borderBottom: "1px solid var(--ws-border)", background: "rgba(0,0,0,0.18)", flexShrink: 0, flexWrap: "wrap" }}>
-        {TABS.map(({ id, label, icon: Icon }) => {
+        {TABS.map(({ id, labelKey, icon: Icon }) => {
           const active = activeTab === id;
           return (
             <button
@@ -107,7 +109,7 @@ export function OntologyWorkspace({ onJumpToGraphNode }: OntologyWorkspaceProps)
               style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 13px", borderRadius: 999, border: `1px solid ${active ? "var(--ws-border-strong)" : "transparent"}`, background: active ? "var(--ws-accent-soft)" : "transparent", color: active ? "var(--ws-text)" : "var(--ws-text-muted)", fontSize: 12, fontWeight: 600, cursor: "pointer", transition: "160ms ease" }}
             >
               <Icon size={13} />
-              {label}
+              {t(labelKey)}
             </button>
           );
         })}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 import { Download, HeartPulse, Loader2, Wrench } from "lucide-react";
 import { loadOntologyHealth, loadOntologyRegistry } from "./api";
 import type { OntologyEntry, OntologyHealthResponse, HealthIssue } from "./types";
@@ -9,6 +10,7 @@ interface HealthTabProps {
 }
 
 export function HealthTab({ onFixInEditor }: HealthTabProps) {
+  const { t } = useTranslation();
   const [registry, setRegistry] = useState<OntologyEntry[]>([]);
   const [selectedUri, setSelectedUri] = useState("");
   const [health, setHealth] = useState<OntologyHealthResponse | null>(null);
@@ -25,7 +27,7 @@ export function HealthTab({ onFixInEditor }: HealthTabProps) {
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load ontology registry.");
+        setError(err instanceof Error ? err.message : t("health.loadRegistryFailed"));
       });
     return () => {
       cancelled = true;
@@ -75,15 +77,14 @@ export function HealthTab({ onFixInEditor }: HealthTabProps) {
     <div style={pageStyle}>
       <section style={heroStyle}>
         <div>
-          <div style={kickerStyle}><HeartPulse size={14} /> Ontology Health</div>
-          <h2 style={titleStyle}>Quality and governance signals</h2>
+          <div style={kickerStyle}><HeartPulse size={14} /> {t("health.kicker")}</div>
+          <h2 style={titleStyle}>{t("health.title")}</h2>
           <p style={textStyle}>
-            Score completeness, consistency, SHACL readiness, alignment coverage,
-            and documentation quality for the selected ontology.
+            {t("health.subtitle")}
           </p>
         </div>
         <div style={selectorShellStyle}>
-          <label style={labelStyle}>Ontology</label>
+          <label style={labelStyle}>{t("health.ontology")}</label>
           <select style={inputStyle} value={selectedUri} onChange={(event) => setSelectedUri(event.target.value)}>
             {registry.map((entry) => <option key={entry.uri} value={entry.uri}>{entry.name}</option>)}
           </select>
@@ -93,14 +94,14 @@ export function HealthTab({ onFixInEditor }: HealthTabProps) {
       {error ? <div style={errorStyle}>{error}</div> : null}
 
       {loading ? (
-        <div style={loadingStyle}><Loader2 size={18} className="ws-spin" /> Computing health dashboard...</div>
+        <div style={loadingStyle}><Loader2 size={18} className="ws-spin" /> {t("health.computing")}</div>
       ) : health ? (
         <>
           <section style={{ ...scoreGridStyle, gridTemplateColumns: `220px repeat(${health.dimensions.length}, minmax(180px, 1fr))` }}>
             <div style={scoreCardStyle}>
               <span style={scoreValueStyle}>{Math.round(health.total_score)}</span>
-              <span style={mutedStyle}>Total health score</span>
-              <button style={secondaryButtonStyle} onClick={exportReport}><Download size={14} /> Export report</button>
+              <span style={mutedStyle}>{t("health.totalScore")}</span>
+              <button style={secondaryButtonStyle} onClick={exportReport}><Download size={14} /> {t("health.exportReport")}</button>
             </div>
             {health.dimensions.map((dimension) => (
               <div key={dimension.key} style={dimensionCardStyle}>
@@ -120,23 +121,24 @@ export function HealthTab({ onFixInEditor }: HealthTabProps) {
           </section>
 
           <section style={cardStyle}>
-            <h3 style={sectionTitleStyle}>Actionable issues</h3>
+            <h3 style={sectionTitleStyle}>{t("health.actionableIssues")}</h3>
             <div style={issueListStyle}>
               {health.issues.map((issue) => (
                 <IssueRow key={issue.id} issue={issue} onFixInEditor={onFixInEditor} />
               ))}
-              {!health.issues.length ? <p style={mutedStyle}>No actionable issues reported for this ontology.</p> : null}
+              {!health.issues.length ? <p style={mutedStyle}>{t("health.noIssues")}</p> : null}
             </div>
           </section>
         </>
       ) : (
-        <div style={emptyStyle}>Select an ontology to compute health signals.</div>
+        <div style={emptyStyle}>{t("health.empty")}</div>
       )}
     </div>
   );
 }
 
 function IssueRow({ issue, onFixInEditor }: { issue: HealthIssue; onFixInEditor?: (entityUri: string) => void }) {
+  const { t } = useTranslation();
   return (
     <div style={issueRowStyle}>
       <div style={severityDotStyle(issue.severity)} />
@@ -149,7 +151,7 @@ function IssueRow({ issue, onFixInEditor }: { issue: HealthIssue; onFixInEditor?
       {issue.entity_uri ? (
         <button style={smallButtonStyle} onClick={() => onFixInEditor?.(issue.entity_uri || "")}>
           <Wrench size={13} />
-          Fix in Editor
+          {t("health.fixInEditor")}
         </button>
       ) : (
         <div />

@@ -5,6 +5,7 @@
  * KG / Ontology mutation that occurred in this session.
  */
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ClipboardList, Filter, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import { useRegistry, clearRegistry, type RegistryEntryOp } from "../../store/registryStore";
 
@@ -12,14 +13,14 @@ const OP_META: Record<
   RegistryEntryOp,
   { label: string; color: string; bg: string; border: string }
 > = {
-  import:       { label: "IMPORT",       color: "#4aa3ff", bg: "rgba(74,163,255,0.12)",  border: "rgba(74,163,255,0.28)" },
-  export:       { label: "EXPORT",       color: "#8fa8c6", bg: "rgba(143,168,198,0.08)", border: "rgba(143,168,198,0.18)" },
-  merge:        { label: "MERGE",        color: "#f2b66d", bg: "rgba(242,182,109,0.12)", border: "rgba(242,182,109,0.28)" },
-  "add-node":   { label: "ADD NODE",     color: "#4cc38a", bg: "rgba(76,195,138,0.12)",  border: "rgba(76,195,138,0.28)" },
-  "add-edge":   { label: "ADD EDGE",     color: "#4cc38a", bg: "rgba(76,195,138,0.10)",  border: "rgba(76,195,138,0.22)" },
-  delete:       { label: "DELETE",       color: "#ff7b72", bg: "rgba(255,123,114,0.12)", border: "rgba(255,123,114,0.28)" },
-  infer:        { label: "INFER",        color: "#d2a8ff", bg: "rgba(210,168,255,0.12)", border: "rgba(210,168,255,0.28)" },
-  "vocab-import": { label: "VOCAB",      color: "#79c0ff", bg: "rgba(121,192,255,0.12)", border: "rgba(121,192,255,0.28)" },
+  import:       { label: "registry.opImport",       color: "#4aa3ff", bg: "rgba(74,163,255,0.12)",  border: "rgba(74,163,255,0.28)" },
+  export:       { label: "registry.opExport",       color: "#8fa8c6", bg: "rgba(143,168,198,0.08)", border: "rgba(143,168,198,0.18)" },
+  merge:        { label: "registry.opMerge",        color: "#f2b66d", bg: "rgba(242,182,109,0.12)", border: "rgba(242,182,109,0.28)" },
+  "add-node":   { label: "registry.opAddNode",     color: "#4cc38a", bg: "rgba(76,195,138,0.12)",  border: "rgba(76,195,138,0.28)" },
+  "add-edge":   { label: "registry.opAddEdge",     color: "#4cc38a", bg: "rgba(76,195,138,0.10)",  border: "rgba(76,195,138,0.22)" },
+  delete:       { label: "registry.opDelete",       color: "#ff7b72", bg: "rgba(255,123,114,0.12)", border: "rgba(255,123,114,0.28)" },
+  infer:        { label: "registry.opInfer",        color: "#d2a8ff", bg: "rgba(210,168,255,0.12)", border: "rgba(210,168,255,0.28)" },
+  "vocab-import": { label: "registry.opVocab",      color: "#79c0ff", bg: "rgba(121,192,255,0.12)", border: "rgba(121,192,255,0.28)" },
 };
 
 const ALL_OPS: (RegistryEntryOp | "all")[] = [
@@ -35,6 +36,7 @@ function formatDate(date: Date): string {
 }
 
 function EntryRow({ entry }: { entry: ReturnType<typeof useRegistry>[number] }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const meta = OP_META[entry.op];
   const hasDetail = entry.detail && Object.keys(entry.detail).length > 0;
@@ -58,7 +60,7 @@ function EntryRow({ entry }: { entry: ReturnType<typeof useRegistry>[number] }) 
             marginTop: 1,
           }}
         >
-          {meta.label}
+          {t(meta.label)}
         </span>
 
         {/* Content */}
@@ -75,7 +77,7 @@ function EntryRow({ entry }: { entry: ReturnType<typeof useRegistry>[number] }) 
         {hasDetail ? (
           <button
             onClick={() => setExpanded((v) => !v)}
-            title={expanded ? "Collapse details" : "Expand details"}
+            title={expanded ? t("registry.collapseDetails") : t("registry.expandDetails")}
             style={expandBtnStyle}
           >
             {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -94,6 +96,7 @@ function EntryRow({ entry }: { entry: ReturnType<typeof useRegistry>[number] }) 
 }
 
 export function RegistryTab() {
+  const { t } = useTranslation();
   const entries = useRegistry();
   const [activeFilter, setActiveFilter] = useState<RegistryEntryOp | "all">("all");
 
@@ -108,24 +111,24 @@ export function RegistryTab() {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <ClipboardList size={18} color="#4aa3ff" />
           <div>
-            <div style={{ color: "#ebf3ff", fontSize: 16, fontWeight: 700 }}>Document Registry</div>
+            <div style={{ color: "#ebf3ff", fontSize: 16, fontWeight: 700 }}>{t("registry.title")}</div>
             <div style={{ color: "#8b949e", fontSize: 12 }}>
-              Audit log of all KG and Ontology mutations this session
+              {t("registry.subtitle")}
             </div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ color: "#8fa8c6", fontSize: 12 }}>
-            {entries.length} event{entries.length !== 1 ? "s" : ""}
+            {t("registry.events", { count: entries.length })}
           </span>
           {entries.length > 0 ? (
             <button
               onClick={clearRegistry}
-              title="Clear all events"
+              title={t("registry.clearTitle")}
               style={clearBtnStyle}
             >
               <Trash2 size={13} />
-              <span>Clear</span>
+              <span>{t("registry.clear")}</span>
             </button>
           ) : null}
         </div>
@@ -160,7 +163,7 @@ export function RegistryTab() {
                   transition: "all 140ms ease",
                 }}
               >
-                {op === "all" ? "All" : (meta?.label ?? op)}
+                {op === "all" ? t("registry.all") : (meta ? t(meta.label) : op)}
               </button>
             );
           })}
@@ -173,10 +176,10 @@ export function RegistryTab() {
           <div style={emptyStateStyle}>
             <ClipboardList size={36} color="rgba(127,208,255,0.15)" />
             <div style={{ color: "#8b949e", fontSize: 14, marginTop: 12, fontWeight: 500 }}>
-              No events recorded yet
+              {t("registry.noEvents")}
             </div>
             <div style={{ color: "#6a7f97", fontSize: 12, marginTop: 4, textAlign: "center", maxWidth: 300 }}>
-              Import a file, run reasoning, or merge entities to see activity appear here.
+              {t("registry.noEventsBody")}
             </div>
           </div>
         ) : (
