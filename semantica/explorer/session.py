@@ -63,6 +63,13 @@ class GraphSession:
         self._graph_revision: int = 0
         self._cached_embeddings: Optional[Dict[str, List[float]]] = None
         self._cached_graph_revision: int = -1
+        # Pagination caches. paginate_nodes/paginate_edges used to re-normalize
+        # (uuid5 + sort) the ENTIRE graph on every page request, which is O(E)
+        # per page and made the canvas load take minutes on a ~140k-edge graph.
+        # We now normalize+filter+sort once per (query params, graph_revision)
+        # and slice O(limit) per page; keyed by revision so mutations invalidate.
+        self._edge_page_cache: Dict[tuple, tuple] = {}
+        self._node_page_cache: Dict[tuple, tuple] = {}
         self.rebuild_search_index()
 
     @classmethod
@@ -320,32 +327,38 @@ class GraphSession:
         cursor: Optional[str] = None,
         bbox: Optional[tuple[float, float, float, float]] = None,
     ) -> tuple[list[dict[str, Any]], int, Optional[str]]:
+        cache_key = (node_type, search, bbox, self._graph_revision)
         with self._lock:
-            node_ids: Iterable[str]
-            if node_type:
-                node_ids = sorted(
-                    (node_id for node_id in self.graph.node_type_index.get(node_type, set()) if node_id is not None),
-                    key=lambda value: str(value),
-                )
-            else:
-                node_ids = sorted(
-                    (node_id for node_id in self.graph.nodes.keys() if node_id is not None),
-                    key=lambda value: str(value),
-                )
+            cached = self._node_page_cache.get(cache_key)
+            if cached is None:
+                node_ids: Iterable[str]
+                if node_type:
+                    node_ids = sorted(
+                        (node_id for node_id in self.graph.node_type_index.get(node_type, set()) if node_id is not None),
+                        key=lambda value: str(value),
+                    )
+                else:
+                    node_ids = sorted(
+                        (node_id for node_id in self.graph.nodes.keys() if node_id is not None),
+                        key=lambda value: str(value),
+                    )
 
-            filtered_ids: List[str] = []
-            normalized_by_id: Dict[str, Dict[str, Any]] = {}
-            for node_id in node_ids:
-                raw = self.graph.find_node(node_id)
-                if raw is None:
-                    continue
-                normalized = self.normalize_node(raw)
-                if not self._node_matches_search(normalized, search):
-                    continue
-                if not self._node_matches_bbox(normalized, bbox):
-                    continue
-                filtered_ids.append(node_id)
-                normalized_by_id[node_id] = normalized
+                filtered_ids: List[str] = []
+                normalized_by_id: Dict[str, Dict[str, Any]] = {}
+                for node_id in node_ids:
+                    raw = self.graph.find_node(node_id)
+                    if raw is None:
+                        continue
+                    normalized = self.normalize_node(raw)
+                    if not self._node_matches_search(normalized, search):
+                        continue
+                    if not self._node_matches_bbox(normalized, bbox):
+                        continue
+                    filtered_ids.append(node_id)
+                    normalized_by_id[node_id] = normalized
+                cached = (filtered_ids, normalized_by_id)
+                self._node_page_cache[cache_key] = cached
+            filtered_ids, normalized_by_id = cached
 
         total = len(filtered_ids)
         start_index = skip
@@ -397,26 +410,30 @@ class GraphSession:
         limit: int = 100,
         cursor: Optional[str] = None,
     ) -> tuple[list[dict[str, Any]], int, Optional[str]]:
+        cache_key = (edge_type, source, target, self._graph_revision)
         with self._lock:
-            raw_edges = self.graph.find_edges(edge_type=edge_type)
+            cached = self._edge_page_cache.get(cache_key)
+            if cached is None:
+                raw_edges = self.graph.find_edges(edge_type=edge_type)
 
-        normalized_edges: List[Dict[str, Any]] = []
-        keys: List[str] = []
-        for edge in raw_edges:
-            normalized = self.normalize_edge(edge)
-            if not normalized["source"] or not normalized["target"]:
-                continue
-            if source and normalized["source"] != source:
-                continue
-            if target and normalized["target"] != target:
-                continue
-            edge_key = str(normalized["id"])
-            normalized_edges.append(normalized)
-            keys.append(edge_key)
+                normalized_edges: List[Dict[str, Any]] = []
+                keys: List[str] = []
+                for edge in raw_edges:
+                    normalized = self.normalize_edge(edge)
+                    if not normalized["source"] or not normalized["target"]:
+                        continue
+                    if source and normalized["source"] != source:
+                        continue
+                    if target and normalized["target"] != target:
+                        continue
+                    edge_key = str(normalized["id"])
+                    normalized_edges.append(normalized)
+                    keys.append(edge_key)
 
-        ordered = sorted(zip(keys, normalized_edges), key=lambda item: item[0])
-        ordered_keys = [key for key, _ in ordered]
-        ordered_edges = [edge for _, edge in ordered]
+                ordered = sorted(zip(keys, normalized_edges), key=lambda item: item[0])
+                cached = ([key for key, _ in ordered], [edge for _, edge in ordered])
+                self._edge_page_cache[cache_key] = cached
+            ordered_keys, ordered_edges = cached
 
         total = len(ordered_edges)
         start_index = skip
@@ -603,6 +620,8 @@ class GraphSession:
         self._graph_revision += 1
         self._cached_embeddings = None
         self._cached_graph_revision = -1
+        self._edge_page_cache.clear()
+        self._node_page_cache.clear()
 
     @staticmethod
     def _coerce_embedding_vector(value: Any) -> Optional[List[float]]:

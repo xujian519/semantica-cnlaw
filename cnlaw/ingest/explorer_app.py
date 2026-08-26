@@ -9,6 +9,8 @@ GraphSession is held on app.state so /api/graph/* serves the legal corpus.
 
 from __future__ import annotations
 
+import os
+
 from semantica.explorer.app import create_app
 from semantica.explorer.session import GraphSession
 
@@ -18,9 +20,15 @@ from .explorer_graph import build_law_context_graph
 from .graph_api import router as graph_router
 from .ipc_api import router as ipc_router
 
+# Cap how many per-hub edges the canvas loads so its hub-star clusters stay
+# interactive (see explorer_graph._HUB_SIDE). ``0`` disables the cap = full graph.
+_GRAPH_MAX_EDGES_PER_HUB = int(os.environ.get("CNLAW_GRAPH_MAX_EDGES_PER_HUB", "80"))
+
 
 def build_session() -> GraphSession:
-    return GraphSession(build_law_context_graph())
+    return GraphSession(
+        build_law_context_graph(max_edges_per_hub=_GRAPH_MAX_EDGES_PER_HUB)
+    )
 
 
 app = create_app(session=build_session())

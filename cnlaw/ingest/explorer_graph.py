@@ -9,11 +9,71 @@ ContextGraph.build_from_entities_and_relationships.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .load_laws_neo4j import make_store
 
 _ARTICLE_TEXT_PREVIEW = 120  # keep the in-graph node label short
+
+# Canvas is a representative view of the corpus, not the full graph. The load
+# below emits every Neo4j relationship, which turns a handful of statute hubs
+# (e.g. 专利法第46条 <- 27k decisions, 第22条 <- 18k) into hyper-star edge
+# clusters that take the frontend ~7 min to hydrate. We cap per-hub edges so no
+# node exceeds a sane degree, which restores interactivity without touching the
+# cnlaw retrieval API (that path queries Neo4j directly and is unaffected).
+#
+# The hub is on different endpoints per edge type: ``based_on`` (decision ->
+# statute) fans into the *target* Article; ``has_article`` (document -> article)
+# fans out from the *source* document. So the cap key is chosen per edge type.
+_HUB_SIDE = {"has_article": "source"}
+_DEFAULT_CAP_TYPES = {"based_on", "has_article"}
+
+
+def _hub_key(rel: Dict[str, Any], side: str) -> str:
+    return rel["source_id"] if side == "source" else rel["target_id"]
+
+
+def _other_key(rel: Dict[str, Any], side: str) -> str:
+    return rel["target_id"] if side == "source" else rel["source_id"]
+
+
+def _cap_relationships(
+    relationships: List[Dict[str, Any]],
+    max_edges_per_hub: Optional[int],
+    cap_types: set,
+) -> List[Dict[str, Any]]:
+    """Keep at most ``max_edges_per_hub`` edges per ``(edge_type, hub)``.
+
+    ``None``/``<=0`` returns the list unchanged, which is the full-graph escape
+    hatch. Degree-below-cap nodes are unaffected; only the long tail beyond the
+    cap on a given hub is dropped.
+    """
+    if not max_edges_per_hub or max_edges_per_hub <= 0:
+        return relationships
+    # Sort for determinism so the retained edges of a hub are stable across runs
+    # (e.g. has_article keeps the lowest-numbered articles of a long statute).
+    relationships = sorted(
+        relationships,
+        key=lambda r: (
+            r["type"],
+            _hub_key(r, _HUB_SIDE.get(r["type"], "target")),
+            _other_key(r, _HUB_SIDE.get(r["type"], "target")),
+        ),
+    )
+    counts: Dict[Tuple[str, str], int] = {}
+    kept: List[Dict[str, Any]] = []
+    for rel in relationships:
+        t = rel["type"]
+        if t not in cap_types:
+            kept.append(rel)
+            continue
+        hub = _hub_key(rel, _HUB_SIDE.get(t, "target"))
+        key = (t, hub)
+        n = counts.get(key, 0)
+        if n < max_edges_per_hub:
+            kept.append(rel)
+            counts[key] = n + 1
+    return kept
 
 
 def _doc_id(full_name: str, source_date: str) -> str:
@@ -44,8 +104,17 @@ def _ipc_id(code: str) -> str:
     return f"ipc:{code}"
 
 
-def load_law_entities_relationships(store) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Pull the cnlaw graph from Neo4j as (entities, relationships)."""
+def load_law_entities_relationships(
+    store,
+    max_edges_per_hub: Optional[int] = None,
+    cap_types: Optional[set] = None,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Pull the cnlaw graph from Neo4j as (entities, relationships).
+
+    ``max_edges_per_hub`` caps how many relationships any single hub node keeps
+    (``None`` = full graph), which keeps the canvas interactive. See
+    ``_HUB_SIDE`` for which endpoint of each edge type is the hub.
+    """
     def run(query: str) -> List[Dict[str, Any]]:
         return store.execute_query(query).get("records", [])
 
@@ -319,15 +388,26 @@ def load_law_entities_relationships(store) -> Tuple[List[Dict[str, Any]], List[D
                 }
             )
 
+    relationships = _cap_relationships(
+        relationships,
+        max_edges_per_hub,
+        _DEFAULT_CAP_TYPES if cap_types is None else cap_types,
+    )
     return entities, relationships
 
 
-def build_law_context_graph(store=None):
+def build_law_context_graph(
+    store=None,
+    max_edges_per_hub: Optional[int] = None,
+    cap_types: Optional[set] = None,
+):
     """Construct a ContextGraph populated with the cnlaw legal corpus."""
     from semantica.context.context_graph import ContextGraph
 
     store = store or make_store()
-    entities, relationships = load_law_entities_relationships(store)
+    entities, relationships = load_law_entities_relationships(
+        store, max_edges_per_hub, cap_types
+    )
     graph = ContextGraph()
     graph.build_from_entities_and_relationships(entities, relationships)
     graph._cnlaw_stats = {"entities": len(entities), "relationships": len(relationships)}
