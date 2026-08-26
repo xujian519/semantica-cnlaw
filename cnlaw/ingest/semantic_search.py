@@ -38,7 +38,11 @@ def _get(path: str, query: str, k: int, **extra) -> List[Dict[str, Any]]:
     params = {"q": query, "k": k}
     params.update({key: val for key, val in extra.items() if val is not None})
     try:
-        resp = requests.get(f"{_SEARCH_SERVICE}{path}", params=params, timeout=180)
+        # trust_env=False so localhost:8100 is hit directly, bypassing any
+        # HTTP(S)_PROXY (macOS system proxy :9981) that would route loopback and 502.
+        session = requests.Session()
+        session.trust_env = False
+        resp = session.get(f"{_SEARCH_SERVICE}{path}", params=params, timeout=180)
         resp.raise_for_status()
     except requests.exceptions.RequestException as exc:
         raise RuntimeError(
