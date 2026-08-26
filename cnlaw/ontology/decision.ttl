@@ -1,0 +1,270 @@
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+@prefix law:  <https://cnlaw.dev/law#> .
+@prefix dec:  <https://cnlaw.dev/decision#> .
+
+<https://cnlaw.dev/decision> a owl:Ontology ;
+    rdfs:label "专利复审无效决定领域本体" ;
+    rdfs:comment """Ontology for Chinese patent invalidation / reexamination
+decisions (无效宣告请求审查决定书 / 复审请求审查决定书). These are administrative
+adjudication documents, distinct from the LegalDocument/Article classes in
+law.ttl. A decision is tied to the statute Articles it applies (dec:based_on ->
+law:Article) and to the patent it concerns (dec:involves -> dec:Patent).""" ;
+    owl:versionInfo "0.1.0-draft" ;
+    dct:created "2026-08-25"^^xsd:date .
+
+# ── Classes ──────────────────────────────────────────────────────────────────
+
+dec:PatentDecision a owl:Class ;
+    rdfs:label "专利复审无效决定" ;
+    rdfs:comment """A single invalidation or reexamination adjudication. Carries
+the case metadata (decision number, case number, parties, dates, IPC), the legal
+provisions applied and the outcome.""" ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:Patent a owl:Class ;
+    rdfs:label "专利" ;
+    rdfs:comment """A lightweight patent node keyed by application / grant number,
+used as the join key between decisions and (later) patent judgments.""" ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+# ── Datatype properties ──────────────────────────────────────────────────────
+
+dec:decision_id a owl:DatatypeProperty ;
+    rdfs:label "决定号" ;
+    rdfs:comment "Official decision number, e.g. 566693 (the digits of 第566693号)." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:case_type a owl:DatatypeProperty ;
+    rdfs:label "决定类型" ;
+    rdfs:comment "复审 or 无效 (derived from the document text, never the filename)." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:case_number a owl:DatatypeProperty ;
+    rdfs:label "案件编号" ;
+    rdfs:comment "CNIPA case number, e.g. 4W116319 (invalidation) or 1F101201 (reexamination)." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:decision_date a owl:DatatypeProperty ;
+    rdfs:label "决定日" ;
+    rdfs:comment "Date the decision was issued, as an ISO date." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:date ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:invention_name a owl:DatatypeProperty ;
+    rdfs:label "发明创造名称" ;
+    rdfs:comment "Title of the invention/utility model/design at issue." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:ipc a owl:DatatypeProperty ;
+    rdfs:label "国际分类号" ;
+    rdfs:comment "IPC classification (possibly multiple codes)." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:patent_holder a owl:DatatypeProperty ;
+    rdfs:label "专利权人" ;
+    rdfs:comment "The patentee in an invalidation case." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:requesting_party a owl:DatatypeProperty ;
+    rdfs:label "请求人" ;
+    rdfs:comment "The invalidation petitioner or reexamination requester." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:application_number a owl:DatatypeProperty ;
+    rdfs:label "申请号/专利号" ;
+    rdfs:comment "The application or grant number of the patent at issue." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:application_date a owl:DatatypeProperty ;
+    rdfs:label "申请日" ;
+    rdfs:comment "Filing date, as an ISO date." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:date ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:priority_date a owl:DatatypeProperty ;
+    rdfs:label "优先权日" ;
+    rdfs:comment "Priority date, as an ISO date." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:date ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:publication_date a owl:DatatypeProperty ;
+    rdfs:label "公开日" ;
+    rdfs:comment "Publication date, as an ISO date." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:date ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:grant_date a owl:DatatypeProperty ;
+    rdfs:label "授权公告日" ;
+    rdfs:comment "Grant/publication-of-grant date, as an ISO date." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:date ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:requester_date a owl:DatatypeProperty ;
+    rdfs:label "请求日" ;
+    rdfs:comment "Date the invalidation petition / reexamination request was filed, as an ISO date." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:date ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:panel a owl:DatatypeProperty ;
+    rdfs:label "合议组" ;
+    rdfs:comment "The examining panel, as a display string (chair + examiners)." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:legal_basis a owl:DatatypeProperty ;
+    rdfs:label "法律依据" ;
+    rdfs:comment "The statutory provisions applied, e.g. 专利法第22条第3款." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:decision_points a owl:DatatypeProperty ;
+    rdfs:label "决定要点" ;
+    rdfs:comment "The distilled legal holding of the decision." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:decision_result a owl:DatatypeProperty ;
+    rdfs:label "决定结论" ;
+    rdfs:comment """Outcome: 宣告专利权全部无效 / 宣告专利权部分无效 / 维持专利权有效
+(invalidation) or 撤销驳回决定 / 维持驳回决定 (reexamination), or 待核验.""" ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:tech_field a owl:DatatypeProperty ;
+    rdfs:label "技术领域" ;
+    rdfs:comment "Technology field, optionally from the classification sidecar." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:claims_original a owl:DatatypeProperty ;
+    rdfs:label "权利要求书" ;
+    rdfs:comment "The claims as originally examined, as raw text." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:evidence a owl:DatatypeProperty ;
+    rdfs:label "证据" ;
+    rdfs:comment "Cited evidence / prior-art references, as raw text." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:legal_reasoning a owl:DatatypeProperty ;
+    rdfs:label "论证" ;
+    rdfs:comment "The reasoning narrative summary, as raw text." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:full_text a owl:DatatypeProperty ;
+    rdfs:label "决定全文" ;
+    rdfs:comment "Cleaned decision text used for document-level vectorization." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:source_path a owl:DatatypeProperty ;
+    rdfs:label "源路径" ;
+    rdfs:comment "Absolute source file path for provenance." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:source_file a owl:DatatypeProperty ;
+    rdfs:label "源文件名" ;
+    rdfs:comment "Source file name for provenance." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:domain a owl:DatatypeProperty ;
+    rdfs:label "知识域" ;
+    rdfs:comment "Knowledge domain tag, '专利复审无效' for this corpus." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+# Patent datatype properties
+dec:patent_number a owl:DatatypeProperty ;
+    rdfs:label "专利号" ;
+    rdfs:comment "The application / grant number identifying the patent." ;
+    rdfs:domain dec:Patent ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:patent_kind a owl:DatatypeProperty ;
+    rdfs:label "专利类型" ;
+    rdfs:comment "grant (授权公告号) or application (申请号)." ;
+    rdfs:domain dec:Patent ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:patent_invention_name a owl:DatatypeProperty ;
+    rdfs:label "专利名称" ;
+    rdfs:comment "Aggregated invention name for the patent." ;
+    rdfs:domain dec:Patent ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:patent_ipc a owl:DatatypeProperty ;
+    rdfs:label "专利IPC" ;
+    rdfs:comment "Aggregated IPC code for the patent." ;
+    rdfs:domain dec:Patent ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:patent_holder a owl:DatatypeProperty ;
+    rdfs:label "专利权人" ;
+    rdfs:comment "Aggregated patentee for the patent." ;
+    rdfs:domain dec:Patent ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+# ── Object properties ────────────────────────────────────────────────────────
+
+dec:involves a owl:ObjectProperty ;
+    rdfs:label "涉及专利" ;
+    rdfs:comment "Links a PatentDecision to the Patent it concerns." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range dec:Patent ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .
+
+dec:based_on a owl:ObjectProperty ;
+    rdfs:label "依据" ;
+    rdfs:comment "Links a PatentDecision to a statute Article (law:Article) it applies." ;
+    rdfs:domain dec:PatentDecision ;
+    rdfs:range law:Article ;
+    rdfs:isDefinedBy <https://cnlaw.dev/decision> .

@@ -23,6 +23,9 @@ DEFAULT_DIMENSION = 1024  # BAAI/bge-m3
 
 _FIELDS = ("full_name", "source_date", "number", "category", "status", "domain", "text", "source_path")
 
+# 嵌入时对超长条文限长，避免 oMLX(Metal) 对超大输入溢出/断连；meta 仍保存全文供显示与溯源。
+_EMBED_MAX_CHARS = 4000
+
 
 def make_id(record: Dict[str, Any]) -> str:
     """Stable ID for a vector, keyed by document version + article number."""
@@ -107,7 +110,7 @@ def vectorize(rows: List[Dict[str, Any]], embedder, store_faiss, meta_path, fais
         fresh = [r for r in batch if make_id(r) not in done_ids]
         if not fresh:
             continue
-        vectors = embedder.embed_batch([r["text"] for r in fresh])
+        vectors = embedder.embed_batch([r["text"][:_EMBED_MAX_CHARS] for r in fresh])
         ids = [make_id(r) for r in fresh]
         metas = [build_metadata(r) for r in fresh]
         store_faiss.add_vectors(vectors, ids, metas)

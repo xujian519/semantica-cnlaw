@@ -1,0 +1,58 @@
+# SHACL constraints for the patent invalidation / reexamination decision corpus.
+#
+# These shapes turn decision.ttl into a data-quality gate for the Neo4j import
+# (D1) and beyond: a decision must carry a decision number, a case type and a
+# well-formed outcome; key dates must be valid; the involves edge must point at
+# a Patent node. Validated with PySHACL via an OntologyEngine.
+
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix law: <https://cnlaw.dev/law#> .
+@prefix dec: <https://cnlaw.dev/decision#> .
+
+dec:PatentDecisionShape a sh:NodeShape ;
+    sh:targetClass dec:PatentDecision ;
+    sh:property [
+        sh:path dec:decision_id ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "决定必须有决定号 (decision_id)" ;
+    ] ;
+    sh:property [
+        sh:path dec:case_type ;
+        sh:minCount 1 ;
+        sh:in ( "复审" "无效" "待核验" ) ;
+        sh:message "case_type 必须是 复审/无效/待核验 之一" ;
+    ] ;
+    sh:property [
+        sh:path dec:decision_result ;
+        sh:minCount 1 ;
+        sh:in ( "宣告专利权全部无效" "宣告专利权部分无效" "维持专利权有效"
+                "撤销驳回决定" "维持驳回决定" "待核验" ) ;
+        sh:message "decision_result 必须是受控词表之一" ;
+    ] ;
+    sh:property [
+        sh:path dec:decision_date ;
+        sh:or ( [ sh:datatype xsd:date ] [ sh:datatype xsd:string ] ) ;
+        sh:message "decision_date 必须是合法日期 (为空时置空, 不填日期则用 待核验)" ;
+    ] ;
+    sh:property [
+        sh:path dec:domain ;
+        sh:minCount 1 ;
+        sh:hasValue "专利复审无效" ;
+        sh:message "domain 必须为 专利复审无效" ;
+    ] ;
+    sh:property [
+        sh:path dec:involves ;
+        sh:class dec:Patent ;
+        sh:message "involves 指向的节点必须是 Patent" ;
+    ] .
+
+dec:PatentShape a sh:NodeShape ;
+    sh:targetClass dec:Patent ;
+    sh:property [
+        sh:path dec:patent_number ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "专利节点必须有专利号 (patent_number)" ;
+    ] .

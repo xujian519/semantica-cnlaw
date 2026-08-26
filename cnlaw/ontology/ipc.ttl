@@ -1,0 +1,76 @@
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+@prefix ipc:  <https://cnlaw.dev/ipc#> .
+@prefix dec:  <https://cnlaw.dev/decision#> .
+
+<https://cnlaw.dev/ipc> a owl:Ontology ;
+    rdfs:label "国际专利分类（IPC）受控词表本体" ;
+    rdfs:comment """Ontology for the WIPO International Patent Classification (IPC)
+scheme as a controlled vocabulary. Each IPC code (A, A01, A01B, A01B1/00,
+A01B1/02 …) is an ``ipc:IpcNode`` whose ``code`` encodes its own level; the tree
+is expressed via ``ipc:parent``. Patent decisions and patents are classified
+under an IpcNode via ``ipc:classified_in``.""" ;
+    owl:versionInfo "0.1.0-draft" ;
+    dct:created "2026-08-25"^^xsd:date ;
+    owl:imports <https://cnlaw.dev/decision> .
+
+# ── Classes ──────────────────────────────────────────────────────────────────
+
+ipc:IpcNode a owl:Class ;
+    rdfs:label "国际专利分类节点" ;
+    rdfs:comment """A single node in the IPC classification tree. ``ipc:level``
+(distinguishes section/class/subclass/group/subgroup) is derived from the code
+structure, so a node's place in the hierarchy never depends on the source
+layout.""" ;
+    rdfs:isDefinedBy <https://cnlaw.dev/ipc> .
+
+# ── Datatype properties ──────────────────────────────────────────────────────
+
+ipc:code a owl:DatatypeProperty ;
+    rdfs:label "分类码" ;
+    rdfs:comment "Canonical IPC code (no spaces), e.g. A01B1/02." ;
+    rdfs:domain ipc:IpcNode ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/ipc> .
+
+ipc:title a owl:DatatypeProperty ;
+    rdfs:label "分类标题" ;
+    rdfs:comment "Chinese title of the classification entry." ;
+    rdfs:domain ipc:IpcNode ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/ipc> .
+
+ipc:level a owl:DatatypeProperty ;
+    rdfs:label "层级" ;
+    rdfs:comment "One of section/class/subclass/group/subgroup." ;
+    rdfs:domain ipc:IpcNode ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/ipc> .
+
+ipc:version a owl:DatatypeProperty ;
+    rdfs:label "版本" ;
+    rdfs:comment "IPC scheme edition, e.g. 2026.01." ;
+    rdfs:domain ipc:IpcNode ;
+    rdfs:range xsd:string ;
+    rdfs:isDefinedBy <https://cnlaw.dev/ipc> .
+
+# ── Object properties ────────────────────────────────────────────────────────
+
+ipc:parent a owl:ObjectProperty ;
+    rdfs:label "上位分类" ;
+    rdfs:comment "Links an IPC node to its immediate parent node (subgroup→main-group→subclass→class→section)." ;
+    rdfs:domain ipc:IpcNode ;
+    rdfs:range ipc:IpcNode ;
+    rdfs:isDefinedBy <https://cnlaw.dev/ipc> .
+
+ipc:classified_in a owl:ObjectProperty ;
+    rdfs:label "归类于" ;
+    rdfs:comment "Links a patent decision or patent to the most-specific IPC node it is classified under." ;
+    rdfs:domain [ a owl:Class ;
+                  owl:unionOf ( dec:PatentDecision dec:Patent ) ] ;
+    rdfs:range ipc:IpcNode ;
+    rdfs:isDefinedBy <https://cnlaw.dev/ipc> .
