@@ -13,23 +13,25 @@ from typing import Any, Dict, List
 _SEARCH_SERVICE = os.getenv("CNLAW_SEARCH_SERVICE", "http://127.0.0.1:8100")
 
 
-def search_law(query: str, k: int = 8) -> List[Dict[str, Any]]:
+def search_law(query: str, k: int = 8, hybrid: bool = True) -> List[Dict[str, Any]]:
     """Return the top-k similar articles from the resident search service."""
-    return _get("/search", query, k)
+    return _get("/search", query, k, hybrid=hybrid)
 
 
 def search_decisions(query: str, k: int = 8, *, ground: str | None = None,
                      ipc: str | None = None, result: str | None = None,
-                     case_type: str | None = None) -> List[Dict[str, Any]]:
+                     case_type: str | None = None, rerank: bool = True) -> List[Dict[str, Any]]:
     """Return the top-k similar patent decisions from the resident search service."""
-    return _get("/search/decisions", query, k, ground=ground, ipc=ipc, result=result, case_type=case_type)
+    return _get("/search/decisions", query, k, ground=ground, ipc=ipc, result=result,
+                case_type=case_type, rerank=rerank)
 
 
 def search_judgments(query: str, k: int = 8, *, ground: str | None = None,
                      ipc: str | None = None, result: str | None = None,
-                     case_type: str | None = None) -> List[Dict[str, Any]]:
+                     case_type: str | None = None, rerank: bool = True) -> List[Dict[str, Any]]:
     """Return the top-k similar patent judgments from the resident search service."""
-    return _get("/search/judgments", query, k, ground=ground, ipc=ipc, result=result, case_type=case_type)
+    return _get("/search/judgments", query, k, ground=ground, ipc=ipc, result=result,
+                case_type=case_type, rerank=rerank)
 
 
 def _get(path: str, query: str, k: int, **extra) -> List[Dict[str, Any]]:

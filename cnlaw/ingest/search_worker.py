@@ -10,10 +10,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+
+from . import lexical_search
+
+log = logging.getLogger(__name__)
 
 from .vectorize_articles import (
     DEFAULT_FAISS_PATH,
@@ -82,7 +87,8 @@ def _field_filter(hits, *, ground=None, ipc=None, result=None, case_type=None):
     ``ground`` is a substring match on the cited legal basis (e.g. "第22条第3款");
     ``ipc`` is a prefix match on any classification code the decision carries
     (codes are separated by ``,`` / Chinese ``、`` / ``;`` / ``/`` / whitespace);
-    ``result`` and ``case_type`` are exact after stripping surrounding space.
+    ``result`` is a substring match (so "维持" hits "维持专利权有效"); ``case_type``
+    is exact after stripping surrounding space.
     A field the corpus did not populate simply fails its filter, which is honest
     for e.g. judgments, whose sidecar carries no IPC.
     """
@@ -100,7 +106,7 @@ def _field_filter(hits, *, ground=None, ipc=None, result=None, case_type=None):
             codes = re.split(r"[,、，;；/\s]+", h.get("ipc") or "")
             if not any(c and c.upper().startswith(ipc.upper()) for c in codes):
                 continue
-        if result is not None and (h.get("decision_result") or "").strip() != result.strip():
+        if result is not None and result.strip() not in (h.get("decision_result") or ""):
             continue
         if case_type is not None and (h.get("case_type") or "").strip() != case_type.strip():
             continue
@@ -108,11 +114,95 @@ def _field_filter(hits, *, ground=None, ipc=None, result=None, case_type=None):
     return out
 
 
+# ---- hybrid + rerank + citation (Stage: full-utilize) -------------------------
+# The dense-only top-k above is extended with a BM25 lexical arm (exact-term
+# recall), an optional cross-encoder rerank over the fused recall window, and a
+# per-hit ``citation_verified`` flag. All of this stays offline: the lexical
+# index is picked up from disk (`*_lexical.pkl`) and rerank runs on the local
+# oMLX server, so the invariants (data stays on-machine, no external API) hold.
+
+_RERANK_TOPN = 40          # candidates fed to the cross-encoder per query
+_HYBRID_WINDOW_MULT = 6    # widen the lexical window relative to k
+_LEXICAL_PATH = {name: path for name, (_meta, path) in lexical_search._CORPORA.items()}
+
+
+def _rrf_scores(dense_vids: List[str], lex_vids: List[str], rrf_k: int = 60) -> Dict[str, float]:
+    """Reciprocal-rank-fusion score per id from two best-first orderings.
+
+    A document ranked well in either arm scores high; lexical-only hits (missed
+    by the dense window) enter too. Used to order the *surviving* candidates
+    after a field filter, and to build the fused ranking.
+    """
+    fused: Dict[str, float] = {}
+    for lst in (dense_vids, lex_vids):
+        for rank, vid in enumerate(lst):
+            fused[vid] = fused.get(vid, 0.0) + 1.0 / (rrf_k + rank + 1)
+    return fused
+
+
+def _fuse_vids(dense_vids: List[str], lex_vids: List[str], window: int,
+               rrf_k: int = 60) -> List[str]:
+    """Top-``window`` RRF-fused ids from two best-first orderings (dense + lexical)."""
+    fused = _rrf_scores(dense_vids, lex_vids, rrf_k)
+    return sorted(fused, key=lambda v: -fused[v])[:window]
+
+
+def _citation_verifiable(row: Dict[str, Any], source_root: str = "") -> bool:
+    """True when the hit's ``source_path`` resolves to a real file on disk.
+
+    ``source_path`` in the sidecar is absolute (the external corpus under
+    ``宝宸知识库_Raw/``), so this is an offline, dependency-free check. The
+    ``legal_basis``/article-resolution checks against Neo4j ``Article`` nodes are
+    out of scope for the offline search path; this is the authoritative-repro
+    guard an agent needs when citing a precedent.
+    """
+    sp = (row.get("source_path") or "").strip()
+    if not sp:
+        return False
+    p = Path(sp)
+    if not p.is_absolute() and source_root:
+        p = Path(source_root) / sp
+    try:
+        return p.exists()
+    except OSError:
+        return False
+
+
+@lru_cache(maxsize=4)
+def _load_lexical(corpus: str):
+    """(ids, BM25Okapi) for a corpus, or None when the index was never built.
+
+    The resident service queries a pre-built pickle; building tens of thousands
+    of long documents at query time is far too slow. ``build`` once via
+    ``python -m cnlaw.ingest.lexical_search --build <corpus>``.
+    """
+    path = _LEXICAL_PATH.get(corpus)
+    if not path or not Path(path).exists():
+        log.warning("lexical index missing for %r; build it with: "
+                    "python -m cnlaw.ingest.lexical_search --build %s", corpus, corpus)
+        return None
+    return lexical_search.load(path)
+
+
+_reranker_cache: Any = None
+
+
+def _reranker():
+    """Lazily-created shared cross-encoder reranker (oMLX)."""
+    global _reranker_cache
+    if _reranker_cache is None:
+        from .rerank_client import OmlxReranker
+        _reranker_cache = OmlxReranker()
+    return _reranker_cache
+
+
 def _query_precedent(query: str, k: int, backend: Backend, *,
                      ids_loader, meta_loader, fields: Dict[str, str],
                      ground: str | None = None, ipc: str | None = None,
                      result: str | None = None,
-                     case_type: str | None = None) -> List[Dict[str, Any]]:
+                     case_type: str | None = None,
+                     corpus: str | None = None, rerank: bool = False,
+                     reranker=None, source_root: str = "") -> List[Dict[str, Any]]:
     """Shared semantic query for the decision / judgment precedent indices.
 
     Both indices are resolved from a sidecar ``meta`` map (no Neo4j), and both
@@ -120,6 +210,10 @@ def _query_precedent(query: str, k: int, backend: Backend, *,
     :func:`_field_filter`). The FAISS window widens when a filter is present so a
     narrow filter does not starve the result set. ``fields`` maps each output key
     to the sidecar entry key; ``score`` is appended from the FAISS distance.
+
+    With ``corpus`` set, the dense candidates are fused (RRF) with a BM25 lexical
+    arm for exact-term recall; with ``rerank`` the fused recall window is
+    re-ordered by a cross-encoder. Every hit gains ``citation_verified``.
     """
     embedder, faiss_store = backend
     vector = embedder.embed_batch([query])
@@ -128,17 +222,73 @@ def _query_precedent(query: str, k: int, backend: Backend, *,
     vec_ids = ids_loader()
     meta = meta_loader()
 
-    hits: List[Dict[str, Any]] = []
+    dense: List[Dict[str, Any]] = []
     for j, i in enumerate(indices[0]):
         if i < 0:
             continue
         vid = vec_ids[i]
         entry = meta.get(vid, {})
-        row = {"score": float(distances[0][j])}
+        row = {"_vid": vid, "_score_dense": float(distances[0][j]),
+               "_text": entry.get("text", "")}
         for out_key, entry_key in fields.items():
             row[out_key] = entry.get(entry_key, "")
-        hits.append(row)
-    return _field_filter(hits, ground=ground, ipc=ipc, result=result, case_type=case_type)[:k]
+        dense.append(row)
+
+    # Hybrid: widen the candidate pool with the BM25 lexical arm (exact-term
+    # recall), then build the RRF relevance order. The pool is the UNION of the
+    # dense window and the lexical positives — it must NOT be narrowed before a
+    # selective field filter, or the filter can starve the result set.
+    window = max(k, k * (10 if filtered else 3))
+    lex_vids: List[str] = []
+    if corpus is not None:
+        lex = _load_lexical(corpus)
+        if lex is not None:
+            lex_ids, lex_bm25 = lex
+            lex_hits = lexical_search.query(lex_bm25, lex_ids, query, n=window)
+            lex_vids = [vid for vid, _ in lex_hits]
+
+    by_vid = {r["_vid"]: r for r in dense}
+    pool: List[Dict[str, Any]] = list(dense)
+    for vid in lex_vids:
+        if vid not in by_vid:
+            entry = meta.get(vid, {})
+            r = {"_vid": vid, "_score_dense": 0.0, "_text": entry.get("text", "")}
+            for out_key, entry_key in fields.items():
+                r[out_key] = entry.get(entry_key, "")
+            pool.append(r)
+            by_vid[vid] = r
+
+    # Field-filter the union first, so the rerank only touches survivors — and so
+    # a selective filter still sees the whole recall window.
+    survivors = _field_filter(pool, ground=ground, ipc=ipc, result=result,
+                              case_type=case_type)
+    fused = _rrf_scores([r["_vid"] for r in dense], lex_vids)
+
+    if rerank and survivors:
+        rk = reranker if reranker is not None else _reranker()
+        try:
+            ranked = rk.rerank(query, [(r["_vid"], r["_text"]) for r in survivors[:_RERANK_TOPN]])
+        except Exception as exc:
+            ranked = None
+            log.warning("rerank skipped (%s); falling back to fused order", exc)
+        if ranked:
+            score_map = {vid: sc for vid, sc in ranked}
+            survivors = sorted(survivors[:_RERANK_TOPN], key=lambda r: -score_map.get(r["_vid"], 0.0)) \
+                         + survivors[_RERANK_TOPN:]
+            for r in survivors:
+                r["score"] = float(score_map.get(r["_vid"], r.get("_score_dense") or fused.get(r["_vid"], 0.0)))
+        else:
+            survivors.sort(key=lambda r: -fused.get(r["_vid"], r.get("_score_dense", 0.0)))
+            for r in survivors:
+                r["score"] = r.get("_score_dense") or fused.get(r["_vid"], 0.0)
+    else:
+        survivors.sort(key=lambda r: -fused.get(r["_vid"], r.get("_score_dense", 0.0)))
+        for r in survivors:
+            r["score"] = r.get("_score_dense") or fused.get(r["_vid"], 0.0)
+
+    for r in survivors:
+        r["citation_verified"] = _citation_verifiable(r, source_root)
+    return survivors[:k]
 
 
 @lru_cache(maxsize=1)
@@ -162,7 +312,8 @@ def load_backend() -> Backend:
     return build_embedder(), build_faiss_store(DEFAULT_FAISS_PATH)
 
 
-def query_with_backend(query: str, k: int, backend: Backend) -> List[Dict[str, Any]]:
+def query_with_backend(query: str, k: int, backend: Backend,
+                       hybrid: bool = True) -> List[Dict[str, Any]]:
     """Run a semantic query against an already-loaded backend.
 
     Hits are resolved from the sidecar ``meta`` map, so the Neo4j graph store is
@@ -178,32 +329,52 @@ def query_with_backend(query: str, k: int, backend: Backend) -> List[Dict[str, A
     vec_ids = load_ordered_ids()
     meta = load_meta()
 
-    hits: List[Dict[str, Any]] = []
+    def _row(vid, score, entry) -> Dict[str, Any]:
+        rest = entry.get("source_date") or vid.rpartition("@")[2]
+        status = entry.get("status", "")
+        if status == "已被修订":
+            score *= DOWNWEIGHT_REVISED
+        return {
+            "_vid": vid, "_score_dense": float(score),
+            "full_name": entry.get("full_name") or vid.rpartition("@")[0],
+            "source_date": entry.get("source_date") or rest.partition("~")[0],
+            "number": entry.get("number") or rest.partition("~")[2],
+            "text": entry.get("text", ""),
+            "status": status,
+            "domain": entry.get("domain") or "",
+            "category": entry.get("category") or "",
+            "tier": _authority_tier(entry.get("category")),
+            "source_path": entry.get("source_path", ""),
+            "score": 0.0,
+        }
+
+    dense: List[Dict[str, Any]] = []
     for j, i in enumerate(indices[0]):
         if i < 0:
             continue  # FAISS pads with -1 when raw_k exceeds the index size
         vid = vec_ids[i]
-        entry = meta.get(vid, {})
-        rest = entry.get("source_date") or vid.rpartition("@")[2]
-        status = entry.get("status", "")
-        score = float(distances[0][j])
-        if status == "已被修订":
-            score *= DOWNWEIGHT_REVISED
-        hits.append(
-            {
-                "full_name": entry.get("full_name") or vid.rpartition("@")[0],
-                "source_date": entry.get("source_date") or rest.partition("~")[0],
-                "number": entry.get("number") or rest.partition("~")[2],
-                "text": entry.get("text", ""),
-                "status": status,
-                "domain": entry.get("domain") or "",
-                "category": entry.get("category") or "",
-                "tier": _authority_tier(entry.get("category")),
-                "source_path": entry.get("source_path", ""),
-                "score": score,
-            }
-        )
-    return _rank_hits(hits, k)
+        dense.append(_row(vid, float(distances[0][j]), meta.get(vid, {})))
+
+    # Hybrid: widen the candidate pool with the BM25 lexical arm. The pool is the
+    # UNION of the dense window and the lexical positives; ``_rank_hits`` then
+    # orders by authority tier only over the full pool (so an authoritative
+    # current statute is never dropped by a recall-narrowing step).
+    rows: List[Dict[str, Any]] = list(dense)
+    lex = _load_lexical("law") if hybrid else None
+    if lex is not None:
+        lex_ids, lex_bm25 = lex
+        lex_hits = lexical_search.query(lex_bm25, lex_ids, query, n=max(raw_k, k * _HYBRID_WINDOW_MULT))
+        by_vid = {r["_vid"]: r for r in dense}
+        for vid, _ in lex_hits:
+            if vid not in by_vid:
+                rows.append(_row(vid, 0.0, meta.get(vid, {})))
+
+    for r in rows:
+        r["score"] = r["_score_dense"]
+    ranked = _rank_hits(rows, k)
+    for r in ranked:
+        r["citation_verified"] = _citation_verifiable(r)
+    return ranked
 
 
 def load_decision_ordered_ids() -> List[str]:
@@ -223,13 +394,16 @@ def load_decision_backend() -> Backend:
 
 def query_decisions(query: str, k: int, backend: Backend, *,
                     ground: str | None = None, ipc: str | None = None,
-                    result: str | None = None, case_type: str | None = None) -> List[Dict[str, Any]]:
+                    result: str | None = None, case_type: str | None = None,
+                    rerank: bool = True) -> List[Dict[str, Any]]:
     """Run a semantic query against the decision index, resolved from the sidecar.
 
     Optional ``ground`` / ``ipc`` / ``result`` / ``case_type`` post-filter the
     semantic candidates by precedent metadata (see :func:`_field_filter`); the
     FAISS window widens when a filter is present so a narrow filter does not
-    starve the result set. See :func:`_query_precedent` for the shared flow.
+    starve the result set. Dense candidates are hybrid-fused with the BM25
+    lexical arm and (when ``rerank``) re-ordered by a cross-encoder. Every hit
+    carries ``citation_verified``. See :func:`_query_precedent` for the flow.
     """
     return _query_precedent(
         query, k, backend,
@@ -243,6 +417,7 @@ def query_decisions(query: str, k: int, backend: Backend, *,
             "text": "text",
         },
         ground=ground, ipc=ipc, result=result, case_type=case_type,
+        corpus="decisions", rerank=rerank,
     )
 
 
@@ -268,13 +443,15 @@ def load_judgment_backend() -> Backend:
 
 def query_judgments(query: str, k: int, backend: Backend, *,
                     ground: str | None = None, ipc: str | None = None,
-                    result: str | None = None, case_type: str | None = None) -> List[Dict[str, Any]]:
+                    result: str | None = None, case_type: str | None = None,
+                    rerank: bool = True) -> List[Dict[str, Any]]:
     """Run a semantic query against the judgment index, resolved from the sidecar.
 
     Same optional metadata post-filter as :func:`query_decisions`. The judgment
     sidecar carries no IPC, so ``ipc`` succeeds only for non-empty sidecar IPC,
     which judgments do not have; ``ground`` relies on the `legal_basis` field that
-    :func:`~cnlaw.ingest.vectorize_judgments.backfill_fields` populates.
+    :func:`~cnlaw.ingest.vectorize_judgments.backfill_fields` populates. Dense
+    candidates are hybrid-fused and (when ``rerank``) cross-encoder re-ranked.
     """
     return _query_precedent(
         query, k, backend,
@@ -287,6 +464,7 @@ def query_judgments(query: str, k: int, backend: Backend, *,
             "source_path": "source_path", "source_file": "source_file", "text": "text",
         },
         ground=ground, ipc=ipc, result=result, case_type=case_type,
+        corpus="judgments", rerank=rerank,
     )
 
 

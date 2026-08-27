@@ -96,6 +96,16 @@ def cnlaw_case_similar(scenario: str, k: int = 8) -> dict:
     return resp.json()
 
 
+@mcp.tool()
+def cnlaw_inventive_step(claim: str, field: str = "", k: int = 5) -> dict:
+    """创造性三步法证据包（可溯源）：输入技术方案，输出 D1最接近现有技术 / 区别特征 / 实际解决的技术问题 / 有无技术启示，每步带 source_path+法条/指南引用。
+    claim=技术方案描述；field=IPC前缀（如 H01M）限定领域；k=每步引用数。用于 OA 答复/无效答辩的创造性论证（《专利审查指南》第二部分第四章 3.2）。"""
+    resp = _get().get("/api/cnlaw/workflow/inventive-step",
+                      params={"claim": claim, "field": field, "k": k})
+    resp.raise_for_status()
+    return resp.json()
+
+
 def main() -> None:
     mcp.run(transport="stdio")
 

@@ -50,6 +50,7 @@ class SemHit(BaseModel):
     tier: int = 0
     source_path: str
     score: float
+    citation_verified: bool = False
 
 
 class SemResponse(BaseModel):
@@ -71,6 +72,7 @@ class DecisionHit(BaseModel):
     ipc: str = ""
     text: str
     score: float
+    citation_verified: bool = False
 
 
 class DecisionResponse(BaseModel):
@@ -92,6 +94,7 @@ class JudgmentHit(BaseModel):
     source_file: str = ""
     text: str
     score: float
+    citation_verified: bool = False
 
 
 class JudgmentResponse(BaseModel):
@@ -108,30 +111,33 @@ def _load_backend() -> None:
 
 
 @app.get("/search", response_model=SemResponse)
-def search(q: str = Query(...), k: int = 8) -> SemResponse:
+def search(q: str = Query(...), k: int = 8,
+           hybrid: bool = Query(True, description="dense+BM25 混合召回；false=纯语义")) -> SemResponse:
     if _backend is None:
         raise RuntimeError("backend not loaded")
-    return SemResponse(query=q, results=[SemHit(**h) for h in query_with_backend(q, k, _backend)])
+    return SemResponse(query=q, results=[SemHit(**h) for h in query_with_backend(q, k, _backend, hybrid=hybrid)])
 
 
 @app.get("/search/decisions", response_model=DecisionResponse)
 def search_dec(q: str = Query(...), k: int = 8,
                ground: str | None = Query(None), ipc: str | None = Query(None),
-               result: str | None = Query(None), case_type: str | None = Query(None)) -> DecisionResponse:
+               result: str | None = Query(None), case_type: str | None = Query(None),
+               rerank: bool = Query(True, description="交叉编码重排；false=融合后原序")) -> DecisionResponse:
     if _decision_backend is None:
         raise RuntimeError("decision backend not loaded")
     return DecisionResponse(query=q, results=[DecisionHit(**h) for h in query_decisions(
-        q, k, _decision_backend, ground=ground, ipc=ipc, result=result, case_type=case_type)])
+        q, k, _decision_backend, ground=ground, ipc=ipc, result=result, case_type=case_type, rerank=rerank)])
 
 
 @app.get("/search/judgments", response_model=JudgmentResponse)
 def search_jug(q: str = Query(...), k: int = 8,
                ground: str | None = Query(None), ipc: str | None = Query(None),
-               result: str | None = Query(None), case_type: str | None = Query(None)) -> JudgmentResponse:
+               result: str | None = Query(None), case_type: str | None = Query(None),
+               rerank: bool = Query(True, description="交叉编码重排；false=融合后原序")) -> JudgmentResponse:
     if _judgment_backend is None:
         raise RuntimeError("judgment backend not loaded")
     return JudgmentResponse(query=q, results=[JudgmentHit(**h) for h in query_judgments(
-        q, k, _judgment_backend, ground=ground, ipc=ipc, result=result, case_type=case_type)])
+        q, k, _judgment_backend, ground=ground, ipc=ipc, result=result, case_type=case_type, rerank=rerank)])
 
 
 @app.get("/health")
