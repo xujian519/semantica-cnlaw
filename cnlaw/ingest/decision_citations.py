@@ -125,6 +125,8 @@ def main(argv=None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(description="Build the decision->statute based_on graph.")
+    parser.add_argument("--root", default=None,
+                        help="Decision-corpora root (default: the main 无效复审决定 corpus).")
     parser.add_argument("--dry-run", action="store_true", help="Count resolvable based_on edges only.")
     args = parser.parse_args(argv)
 
@@ -132,7 +134,8 @@ def main(argv=None) -> int:
     from .load_decisions_neo4j import scan_decisions, _DECISION_ROOT
 
     store = make_store()
-    decisions, _raw, _errs = scan_decisions(_DECISION_ROOT)
+    root = args.root or _DECISION_ROOT
+    decisions, _raw, _errs = scan_decisions(root)
     articles = load_articles(store)
     plan = build_decision_citation_plan(decisions, articles)
     if args.dry_run:
