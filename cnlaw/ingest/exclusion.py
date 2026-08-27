@@ -17,6 +17,18 @@ _LOCAL_PLACE = r"(省|市|自治区|自治州|自治县|自治旗|区|县)"
 _LOCAL_ACT = r"(条例|办法|规定|实施细则|实施办法|规则|规程|决定)"
 _LOCAL_RE = re.compile(rf"^(中华人民共和国)?.*{_LOCAL_PLACE}.*{_LOCAL_ACT}$")
 
+# 全国性法规虽会提及省/市/县/区（如“国务院关于…地区封锁的规定”“城市公共交通条例”），
+# 但它们并非地方性法规。凡标题以国家权力机关/国家机关名称或通用政策领域名词（非具体地名）开头
+# 者一律不判为地方性法规，避免把全国性法规误排除出库。
+_NATIONAL_PREFIX = re.compile(
+    r"^(全国|国务院|最高人民法院|最高人民检察院|全国人民代表大会常务委员会|"
+    r"中华人民共和国|中国人民解放军|中央)"
+)
+_GENERIC_NATIONAL = re.compile(
+    r"^(城市|行政区域|行政区划|风景名胜区|蓄滞洪区|人力资源市场|"
+    r"森林和野生动物|矿产资源|自然保护区|保税区|进出口|民族工作)"
+)
+
 # 攻略 / 手册类非法规文档
 _HOWTO_RE = re.compile(r"(攻略|入门手册|实用手册|操作指南|问答集)")
 
@@ -38,7 +50,11 @@ def is_local_regulation(full_name: str) -> bool:
     """
     if not full_name:
         return False
-    return bool(_LOCAL_RE.match(full_name.strip()))
+    name = full_name.strip()
+    # 全国性法规（国家权力机关/机关名称开头，或通用政策领域名词开头）不视为地方性法规
+    if _NATIONAL_PREFIX.match(name) or _GENERIC_NATIONAL.match(name):
+        return False
+    return bool(_LOCAL_RE.match(name))
 
 
 def is_howto(full_name: str) -> bool:

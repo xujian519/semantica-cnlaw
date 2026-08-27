@@ -15,10 +15,34 @@ _SEARCH_SERVICE = os.getenv("CNLAW_SEARCH_SERVICE", "http://127.0.0.1:8100")
 
 def search_law(query: str, k: int = 8) -> List[Dict[str, Any]]:
     """Return the top-k similar articles from the resident search service."""
+    return _get("/search", query, k)
+
+
+def search_decisions(query: str, k: int = 8, *, ground: str | None = None,
+                     ipc: str | None = None, result: str | None = None,
+                     case_type: str | None = None) -> List[Dict[str, Any]]:
+    """Return the top-k similar patent decisions from the resident search service."""
+    return _get("/search/decisions", query, k, ground=ground, ipc=ipc, result=result, case_type=case_type)
+
+
+def search_judgments(query: str, k: int = 8, *, ground: str | None = None,
+                     ipc: str | None = None, result: str | None = None,
+                     case_type: str | None = None) -> List[Dict[str, Any]]:
+    """Return the top-k similar patent judgments from the resident search service."""
+    return _get("/search/judgments", query, k, ground=ground, ipc=ipc, result=result, case_type=case_type)
+
+
+def _get(path: str, query: str, k: int, **extra) -> List[Dict[str, Any]]:
     import requests
 
+    params = {"q": query, "k": k}
+    params.update({key: val for key, val in extra.items() if val is not None})
     try:
-        resp = requests.get(f"{_SEARCH_SERVICE}/search", params={"q": query, "k": k}, timeout=180)
+        # trust_env=False so localhost:8100 is hit directly, bypassing any
+        # HTTP(S)_PROXY (macOS system proxy :9981) that would route loopback and 502.
+        session = requests.Session()
+        session.trust_env = False
+        resp = session.get(f"{_SEARCH_SERVICE}{path}", params=params, timeout=180)
         resp.raise_for_status()
     except requests.exceptions.RequestException as exc:
         raise RuntimeError(

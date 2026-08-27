@@ -1,0 +1,44 @@
+# SHACL constraints for the IPC classification corpus (cnlaw/ontology/ipc.ttl).
+#
+# Every IpcNode must carry a canonical code, a well-formed level, and a title;
+# the level must come from the controlled enumeration and the code must match
+# the IPC shape so it can be resolved to a node. The classified_in edge must
+# point at an IpcNode. Validated with PySHACL via an OntologyEngine.
+
+@prefix sh:  <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ipc: <https://cnlaw.dev/ipc#> .
+@prefix dec: <https://cnlaw.dev/decision#> .
+
+ipc:IpcNodeShape a sh:NodeShape ;
+    sh:targetClass ipc:IpcNode ;
+    sh:property [
+        sh:path ipc:code ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:pattern "^[A-H](\\d{2}([A-Z](\\d{0,5}/\\d{1,6})?)?)?$" ;
+        sh:message "分类码 (code) 必填且须为 IPC 形如 A / A01 / A01B / A01B1/00" ;
+    ] ;
+    sh:property [
+        sh:path ipc:title ;
+        sh:minCount 1 ;
+        sh:datatype xsd:string ;
+        sh:message "分类标题 (title) 必填" ;
+    ] ;
+    sh:property [
+        sh:path ipc:level ;
+        sh:minCount 1 ;
+        sh:in ( "section" "class" "subclass" "group" "subgroup" ) ;
+        sh:message "level 必须是 section/class/subclass/group/subgroup 之一" ;
+    ] .
+
+# classified_in is an edge on the patent decision / patent node, so it is
+# validated from a shape that targets those source classes.
+ipc:ClassifiedInShape a sh:NodeShape ;
+    sh:targetClass dec:PatentDecision ;
+    sh:targetClass dec:Patent ;
+    sh:property [
+        sh:path ipc:classified_in ;
+        sh:class ipc:IpcNode ;
+        sh:message "classified_in 指向的节点必须是 IpcNode" ;
+    ] .

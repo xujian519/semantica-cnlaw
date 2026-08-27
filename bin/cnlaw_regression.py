@@ -46,7 +46,7 @@ def hit_ok(hit, keywords) -> bool:
 
 
 def fetch(service, query, k) -> list:
-    r = httpx.get(f"{service}/search", params={"q": query, "k": k}, timeout=90)
+    r = httpx.get(f"{service}/search", params={"q": query, "k": k}, timeout=90, trust_env=False)
     r.raise_for_status()
     hits = r.json().get("results", [])
     for h in hits:  # 校验六个字段齐全

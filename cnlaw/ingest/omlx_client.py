@@ -86,7 +86,9 @@ def _embed_chunk(headers, base_url, model, chunk, timeout, max_retries) -> np.nd
 
     for attempt in range(max_retries):
         try:
-            resp = httpx.post(url, json=payload, headers=headers, timeout=timeout)
+            # trust_env=False so the local oMLX server is hit directly, bypassing
+            # any HTTP(S)_PROXY (macOS system proxy :9981) that would route 502.
+            resp = httpx.post(url, json=payload, headers=headers, timeout=timeout, trust_env=False)
         except _RETRYABLE as exc:
             last_exc = exc
             time.sleep(1 * (2 ** attempt))

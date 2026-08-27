@@ -82,7 +82,11 @@ function chooseColorAccessor(
 
     const countValues = [...counts.values()];
     const coverage = covered / nodes.length;
-    const dominantRatio = Math.max(...countValues) / covered;
+    let maxCount = 0;
+    for (const count of countValues) {
+      if (count > maxCount) maxCount = count;
+    }
+    const dominantRatio = maxCount / covered;
     const entropy = normalizedEntropy(countValues, covered);
     const diversity = Math.min(uniqueCount, GRAPH_THEME.palette.semantic.length) / GRAPH_THEME.palette.semantic.length;
     const score = entropy * 0.65 + diversity * 0.2 + coverage * 0.15;
@@ -493,7 +497,10 @@ export function useLoadGraph(options: UseLoadGraphOptions = {}) {
         degreeByNode.set(edge.target, (degreeByNode.get(edge.target) ?? 0) + 1);
       }
 
-      const maxDegree = Math.max(...degreeByNode.values(), 1);
+      let maxDegree = 1;
+      for (const degree of degreeByNode.values()) {
+        if (degree > maxDegree) maxDegree = degree;
+      }
       const draftAttributes = fetchedNodes.map((node) => ({
         id: node.id,
         attributes: {

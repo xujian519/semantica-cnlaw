@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { Scale, Search, ArrowRight, Info } from "lucide-react";
 
 type OutcomeKind = "approved" | "rejected" | "deferred" | "pending" | string;
@@ -61,6 +62,7 @@ function RelEdge({ label }: { label: string }) {
 }
 
 function CausalFlow({ chain, loading }: { chain: ChainStep[]; loading: boolean }) {
+  const { t } = useTranslation();
   if (loading) return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
       {[1,2,3].map((i) => <div key={i} className="ws-skeleton" style={{ height: 68 }} />)}
@@ -69,8 +71,8 @@ function CausalFlow({ chain, loading }: { chain: ChainStep[]; loading: boolean }
   if (!chain.length) return (
     <div className="ws-empty">
       <div className="ws-empty-icon"><Info size={28} /></div>
-      <div className="ws-empty-title">No chain steps</div>
-      <div className="ws-empty-body">No causal chain steps were found for this decision.</div>
+      <div className="ws-empty-title">{t("decision.noChainSteps")}</div>
+      <div className="ws-empty-body">{t("decision.noChainStepsBody")}</div>
     </div>
   );
   return (
@@ -86,6 +88,7 @@ function CausalFlow({ chain, loading }: { chain: ChainStep[]; loading: boolean }
 }
 
 export function DecisionWorkspace() {
+  const { t } = useTranslation();
   const [decisions, setDecisions] = useState<{ decision_id: string; category?: string; outcome?: string }[]>([]);
   const [selected, setSelected] = useState<{ decision_id: string; category?: string; outcome?: string } | null>(null);
   const [chain, setChain] = useState<ChainStep[]>([]);
@@ -105,7 +108,7 @@ export function DecisionWorkspace() {
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
-        if (r.status === 207) setError(data.message || "Warning: Partial success loading decisions.");
+        if (r.status === 207) setError(data.message || t("decision.partialLoad"));
         return data;
       })
       .then((data) => {
@@ -115,7 +118,7 @@ export function DecisionWorkspace() {
       })
       .catch((e) => {
         if (e?.name !== "AbortError") {
-          setError(e instanceof Error ? e.message : "Failed to load decisions.");
+          setError(e instanceof Error ? e.message : t("decision.loadFailed"));
         }
       })
       .finally(() => {
@@ -142,7 +145,7 @@ export function DecisionWorkspace() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (res.status === 207 && !ctrl.signal.aborted) {
-        setError(data.message || "Warning: Partial success loading chain.");
+        setError(data.message || t("decision.partialChain"));
       }
       if (!ctrl.signal.aborted) setChain(data.chain || []);
     } catch (e) {
@@ -173,7 +176,7 @@ export function DecisionWorkspace() {
             <div style={{ width: 30, height: 30, borderRadius: 9, background: "var(--ws-accent-soft)", border: "1px solid var(--ws-border-strong)", display: "grid", placeItems: "center", color: "var(--ws-accent)", flexShrink: 0 }}>
               <Scale size={15} />
             </div>
-            <div style={{ color: "var(--ws-text)", fontSize: 14, fontWeight: 700 }}>Decisions</div>
+            <div style={{ color: "var(--ws-text)", fontSize: 14, fontWeight: 700 }}>{t("decision.title")}</div>
             {decisions.length > 0 && !listLoading && (
               <span className="ws-pill ws-pill--mono" style={{ marginLeft: "auto" }}>{decisions.length}</span>
             )}
@@ -183,7 +186,7 @@ export function DecisionWorkspace() {
             <input
               className="ws-input"
               type="text"
-              placeholder="Filter by ID, category, outcome…"
+              placeholder={t("decision.filterPlaceholder")}
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               style={{ paddingLeft: 30, fontSize: 12 }}
@@ -198,8 +201,8 @@ export function DecisionWorkspace() {
             </div>
           ) : filtered.length === 0 ? (
             <div className="ws-empty" style={{ padding: "28px 12px" }}>
-              <div className="ws-empty-title">{decisions.length === 0 ? "No decisions" : "No matches"}</div>
-              <div className="ws-empty-body">{decisions.length === 0 ? "No decisions available in the graph." : "Adjust your filter."}</div>
+              <div className="ws-empty-title">{decisions.length === 0 ? t("decision.noDecisions") : t("decision.noMatches")}</div>
+              <div className="ws-empty-body">{decisions.length === 0 ? t("decision.noDecisionsBody") : t("decision.adjustFilter")}</div>
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -242,7 +245,7 @@ export function DecisionWorkspace() {
             <div style={{ marginBottom: 28 }}>
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
                 <div>
-                  <div className="ws-eyebrow" style={{ marginBottom: 6 }}>Decision Record</div>
+                  <div className="ws-eyebrow" style={{ marginBottom: 6 }}>{t("decision.record")}</div>
                   <h2 className="ws-title">{selected.decision_id}</h2>
                 </div>
                 {selected.outcome && <OutcomeBadge outcome={selected.outcome} />}
@@ -256,9 +259,9 @@ export function DecisionWorkspace() {
             <div className="ws-card" style={{ padding: 22 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
                 <div style={{ width: 8, height: 8, borderRadius: 999, background: "linear-gradient(135deg, var(--ws-accent), var(--ws-amber))", boxShadow: "0 0 10px rgba(74,163,255,0.4)" }} />
-                <div style={{ color: "var(--ws-text)", fontSize: 14, fontWeight: 700 }}>Causal Chain</div>
+                <div style={{ color: "var(--ws-text)", fontSize: 14, fontWeight: 700 }}>{t("decision.causalChain")}</div>
                 {chain.length > 0 && !chainLoading && (
-                  <span className="ws-pill ws-pill--accent" style={{ marginLeft: "auto" }}>{chain.length} step{chain.length !== 1 ? "s" : ""}</span>
+                  <span className="ws-pill ws-pill--accent" style={{ marginLeft: "auto" }}>{t("decision.steps", { count: chain.length })}</span>
                 )}
               </div>
               <CausalFlow chain={chain} loading={chainLoading} />
@@ -268,8 +271,8 @@ export function DecisionWorkspace() {
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", position: "relative", zIndex: 1 }}>
             <div className="ws-empty">
               <div className="ws-empty-icon"><Scale size={32} /></div>
-              <div className="ws-empty-title">No decision selected</div>
-              <div className="ws-empty-body">Select a decision from the list to inspect its causal chain and metadata.</div>
+              <div className="ws-empty-title">{t("decision.noSelection")}</div>
+              <div className="ws-empty-body">{t("decision.noSelectionBody")}</div>
             </div>
           </div>
         )}

@@ -23,10 +23,20 @@ from typing import List
 from fastapi import FastAPI, Query
 from pydantic import BaseModel
 
-from .search_worker import Backend, load_backend, query_with_backend
+from .search_worker import (
+    Backend,
+    load_backend,
+    load_decision_backend,
+    load_judgment_backend,
+    query_decisions,
+    query_with_backend,
+    query_judgments,
+)
 
 app = FastAPI(title="cnlaw semantic search")
 _backend: Backend | None = None
+_decision_backend: Backend | None = None
+_judgment_backend: Backend | None = None
 
 
 class SemHit(BaseModel):
@@ -36,6 +46,8 @@ class SemHit(BaseModel):
     text: str
     status: str
     domain: str = ""
+    category: str = ""
+    tier: int = 0
     source_path: str
     score: float
 
@@ -45,10 +57,54 @@ class SemResponse(BaseModel):
     results: List[SemHit]
 
 
+class DecisionHit(BaseModel):
+    decision_id: str
+    case_number: str = ""
+    case_type: str = ""
+    decision_result: str = ""
+    decision_points: str = ""
+    legal_basis: str = ""
+    application_number: str = ""
+    invention_name: str = ""
+    source_path: str = ""
+    source_file: str = ""
+    ipc: str = ""
+    text: str
+    score: float
+
+
+class DecisionResponse(BaseModel):
+    query: str
+    results: List[DecisionHit]
+
+
+class JudgmentHit(BaseModel):
+    judgment_id: str
+    case_number: str = ""
+    case_type: str = ""
+    cause: str = ""
+    court: str = ""
+    decision_result: str = ""
+    legal_basis: str = ""
+    invention_name: str = ""
+    application_number: str = ""
+    source_path: str = ""
+    source_file: str = ""
+    text: str
+    score: float
+
+
+class JudgmentResponse(BaseModel):
+    query: str
+    results: List[JudgmentHit]
+
+
 @app.on_event("startup")
 def _load_backend() -> None:
-    global _backend
+    global _backend, _decision_backend, _judgment_backend
     _backend = load_backend()
+    _decision_backend = load_decision_backend()
+    _judgment_backend = load_judgment_backend()
 
 
 @app.get("/search", response_model=SemResponse)
@@ -58,6 +114,30 @@ def search(q: str = Query(...), k: int = 8) -> SemResponse:
     return SemResponse(query=q, results=[SemHit(**h) for h in query_with_backend(q, k, _backend)])
 
 
+@app.get("/search/decisions", response_model=DecisionResponse)
+def search_dec(q: str = Query(...), k: int = 8,
+               ground: str | None = Query(None), ipc: str | None = Query(None),
+               result: str | None = Query(None), case_type: str | None = Query(None)) -> DecisionResponse:
+    if _decision_backend is None:
+        raise RuntimeError("decision backend not loaded")
+    return DecisionResponse(query=q, results=[DecisionHit(**h) for h in query_decisions(
+        q, k, _decision_backend, ground=ground, ipc=ipc, result=result, case_type=case_type)])
+
+
+@app.get("/search/judgments", response_model=JudgmentResponse)
+def search_jug(q: str = Query(...), k: int = 8,
+               ground: str | None = Query(None), ipc: str | None = Query(None),
+               result: str | None = Query(None), case_type: str | None = Query(None)) -> JudgmentResponse:
+    if _judgment_backend is None:
+        raise RuntimeError("judgment backend not loaded")
+    return JudgmentResponse(query=q, results=[JudgmentHit(**h) for h in query_judgments(
+        q, k, _judgment_backend, ground=ground, ipc=ipc, result=result, case_type=case_type)])
+
+
 @app.get("/health")
 def health() -> dict:
-    return {"ready": _backend is not None}
+    return {
+        "ready": _backend is not None,
+        "decisions_ready": _decision_backend is not None,
+        "judgments_ready": _judgment_backend is not None,
+    }
