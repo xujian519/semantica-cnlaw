@@ -22,14 +22,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/bin/activate-env.sh"
 PY="$ROOT/.venv/bin/python"
-LOGDIR="$ROOT/data/logs"
-mkdir -p "$LOGDIR"
 
 DATA_ROOT="/Users/xujian/projects/宝宸知识库_Raw/无效复审决定"
 MD_DIR="$DATA_ROOT/专利无效决定-2026-md"
 DOWNLOAD_ROOT="/Users/xujian/Downloads/专利无效数据"
 
 SEARCH_PORT="${SEARCH_PORT:-8100}"
+# launchd 托管的检索服务 label（与 ~/Library/LaunchAgents/com.xujian.cnlaw-search-service.plist 一致）；
+# 换机/改名后改这里，或用环境变量 SEARCH_LABEL 覆盖。
+SEARCH_LABEL="${SEARCH_LABEL:-com.xujian.cnlaw-search-service}"
 MONTH=""
 LIMIT=""
 DRY_RUN=0
@@ -119,17 +120,13 @@ if [[ "$DRY_RUN" == "0" ]]; then
 fi
 
 if [[ "$RESTART_SEARCH" == "1" && "$DRY_RUN" == "0" ]]; then
-  run "5/6 重启检索服务（:${SEARCH_PORT}）..." true
-  PID="$(lsof -tiTCP:${SEARCH_PORT} -sTCP:LISTEN 2>/dev/null || true)"
-  if [[ -n "$PID" ]]; then
-    echo "  停止旧进程 pid=$PID"
-    kill "$PID" 2>/dev/null || true
-    sleep 2
-  fi
-  nohup "$ROOT/.venv/bin/uvicorn" cnlaw.ingest.search_service:app --port "$SEARCH_PORT" \
-    > "$LOGDIR/search_service.log" 2>&1 &
-  disown
-  echo "  已启动检索服务 pid=$!，日志：$LOGDIR/search_service.log"
+  run "5/6 重启检索服务（launchd ${SEARCH_LABEL} @ :${SEARCH_PORT}）..." true
+  #   对齐宿主环境：:8100 由 launchd(com.xujian.cnlaw-search-service) 托管，
+  #   kickstart -k 让它按自身 plist 拉起并管理进程——不再由脚本 nohup 直启，
+  #   避免与 launchd 在 :8100 上抢一个非托管实例。
+  launchctl kickstart -k "gui/$(id -u)/${SEARCH_LABEL}" || {
+    echo "  ⚠ launchctl kickstart ${SEARCH_LABEL} 失败（检查 plist Label 或需 sudo）" >&2
+  }
   ready=""
   for i in $(seq 1 40); do
     if curl -s "http://127.0.0.1:${SEARCH_PORT}/health" 2>/dev/null | grep -q '"decisions_ready":true'; then
@@ -140,7 +137,7 @@ if [[ "$RESTART_SEARCH" == "1" && "$DRY_RUN" == "0" ]]; then
   if [[ -n "$ready" ]]; then
     echo "  ✓ 检索服务就绪 decisions_ready=true"
   else
-    echo "  ⚠ 40s 内未确认 decisions_ready，看日志：$LOGDIR/search_service.log" >&2
+    echo "  ⚠ 40s 内未确认 decisions_ready，看日志：~/Library/Logs/cnlaw/search-service.log" >&2
   fi
 fi
 
