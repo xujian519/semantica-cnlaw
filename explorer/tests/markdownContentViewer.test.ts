@@ -5,6 +5,12 @@ import { renderToString } from "react-dom/server";
 
 (globalThis as any).React = React;
 
+// MarkdownContentViewer labels are localized via react-i18next. Pin the global
+// i18n instance to English so the SSR assertions below match the canonical
+// English UI strings (Preview/Source/Copy/No content available…).
+import i18n from "../src/i18n/index";
+void i18n.changeLanguage("en");
+
 import { isSafeUrl, MarkdownContentViewer } from "../src/workspaces/GraphWorkspace/MarkdownContentViewer.tsx";
 
 test("isSafeUrl permits safe http, https, and mailto URLs and relative paths", () => {
