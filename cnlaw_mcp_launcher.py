@@ -15,7 +15,17 @@ import sys
 _project = os.path.dirname(os.path.abspath(__file__))
 sys.path = [p for p in sys.path if os.path.abspath(p or ".") != _project] + [_project]
 
-import mcp  # noqa: E402, F401  now resolves to the pypi SDK
+# Only the pypi SDK exposes ``mcp.server.mcpserver.MCPServer``; the repo-root
+# Semantica ``mcp`` package does not. Fail loudly here rather than silently
+# binding the wrong ``mcp`` if a future sys.path / packaging change defeats the
+# reordering above.
+try:
+    from mcp.server.mcpserver import MCPServer  # noqa: E402, F401
+except ImportError as exc:
+    raise SystemExit(
+        "无法加载 pypi mcp SDK：`import mcp` 解析到了项目根 Semantica 自带的 mcp/ 包，"
+        "而非 site-packages 的 pypi SDK。请经 cnlaw_mcp_launcher.py 启动，或核对 sys.path 排布。"
+    ) from exc
 from cnlaw.ingest import cnlaw_mcp  # noqa: E402
 
 if __name__ == "__main__":

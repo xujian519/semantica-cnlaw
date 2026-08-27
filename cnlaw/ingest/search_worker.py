@@ -108,6 +108,39 @@ def _field_filter(hits, *, ground=None, ipc=None, result=None, case_type=None):
     return out
 
 
+def _query_precedent(query: str, k: int, backend: Backend, *,
+                     ids_loader, meta_loader, fields: Dict[str, str],
+                     ground: str | None = None, ipc: str | None = None,
+                     result: str | None = None,
+                     case_type: str | None = None) -> List[Dict[str, Any]]:
+    """Shared semantic query for the decision / judgment precedent indices.
+
+    Both indices are resolved from a sidecar ``meta`` map (no Neo4j), and both
+    post-filter the semantic candidates by precedent metadata (see
+    :func:`_field_filter`). The FAISS window widens when a filter is present so a
+    narrow filter does not starve the result set. ``fields`` maps each output key
+    to the sidecar entry key; ``score`` is appended from the FAISS distance.
+    """
+    embedder, faiss_store = backend
+    vector = embedder.embed_batch([query])
+    filtered = ground is not None or ipc is not None or result is not None or case_type is not None
+    distances, indices = faiss_store.index.index.search(vector, max(k, k * (10 if filtered else 3)))
+    vec_ids = ids_loader()
+    meta = meta_loader()
+
+    hits: List[Dict[str, Any]] = []
+    for j, i in enumerate(indices[0]):
+        if i < 0:
+            continue
+        vid = vec_ids[i]
+        entry = meta.get(vid, {})
+        row = {"score": float(distances[0][j])}
+        for out_key, entry_key in fields.items():
+            row[out_key] = entry.get(entry_key, "")
+        hits.append(row)
+    return _field_filter(hits, ground=ground, ipc=ipc, result=result, case_type=case_type)[:k]
+
+
 @lru_cache(maxsize=1)
 def load_ordered_ids() -> List[str]:
     """The FAISS insertion-order ids from the sidecar (FAISSIndex.load doesn't restore them)."""
@@ -194,41 +227,23 @@ def query_decisions(query: str, k: int, backend: Backend, *,
     """Run a semantic query against the decision index, resolved from the sidecar.
 
     Optional ``ground`` / ``ipc`` / ``result`` / ``case_type`` post-filter the
-    semantic candidates by precedent metadata (see :func:`_field_filter`). The
+    semantic candidates by precedent metadata (see :func:`_field_filter`); the
     FAISS window widens when a filter is present so a narrow filter does not
-    starve the result set.
+    starve the result set. See :func:`_query_precedent` for the shared flow.
     """
-    embedder, faiss_store = backend
-    vector = embedder.embed_batch([query])
-    filtered = ground is not None or ipc is not None or result is not None or case_type is not None
-    distances, indices = faiss_store.index.index.search(vector, max(k, k * (10 if filtered else 3)))
-    vec_ids = load_decision_ordered_ids()
-    meta = load_decision_meta()
-
-    hits: List[Dict[str, Any]] = []
-    for j, i in enumerate(indices[0]):
-        if i < 0:
-            continue
-        vid = vec_ids[i]
-        entry = meta.get(vid, {})
-        hits.append(
-            {
-                "decision_id": entry.get("decision_id", ""),
-                "case_number": entry.get("case_number", ""),
-                "case_type": entry.get("case_type", ""),
-                "decision_result": entry.get("decision_result", ""),
-                "decision_points": entry.get("decision_points", ""),
-                "legal_basis": entry.get("legal_basis", ""),
-                "application_number": entry.get("application_number", ""),
-                "invention_name": entry.get("invention_name", ""),
-                "ipc": entry.get("ipc", ""),
-                "source_path": entry.get("source_path", ""),
-                "source_file": entry.get("source_file", ""),
-                "text": entry.get("text", ""),
-                "score": float(distances[0][j]),
-            }
-        )
-    return _field_filter(hits, ground=ground, ipc=ipc, result=result, case_type=case_type)[:k]
+    return _query_precedent(
+        query, k, backend,
+        ids_loader=load_decision_ordered_ids, meta_loader=load_decision_meta,
+        fields={
+            "decision_id": "decision_id", "case_number": "case_number",
+            "case_type": "case_type", "decision_result": "decision_result",
+            "decision_points": "decision_points", "legal_basis": "legal_basis",
+            "application_number": "application_number", "invention_name": "invention_name",
+            "ipc": "ipc", "source_path": "source_path", "source_file": "source_file",
+            "text": "text",
+        },
+        ground=ground, ipc=ipc, result=result, case_type=case_type,
+    )
 
 
 def collect_decision_hits(query: str, k: int = 8) -> List[Dict[str, Any]]:
@@ -261,37 +276,18 @@ def query_judgments(query: str, k: int, backend: Backend, *,
     which judgments do not have; ``ground`` relies on the `legal_basis` field that
     :func:`~cnlaw.ingest.vectorize_judgments.backfill_fields` populates.
     """
-    embedder, faiss_store = backend
-    vector = embedder.embed_batch([query])
-    filtered = ground is not None or ipc is not None or result is not None or case_type is not None
-    distances, indices = faiss_store.index.index.search(vector, max(k, k * (10 if filtered else 3)))
-    vec_ids = load_judgment_ordered_ids()
-    meta = load_judgment_meta()
-
-    hits: List[Dict[str, Any]] = []
-    for j, i in enumerate(indices[0]):
-        if i < 0:
-            continue
-        vid = vec_ids[i]
-        entry = meta.get(vid, {})
-        hits.append(
-            {
-                "judgment_id": entry.get("judgment_id", ""),
-                "case_number": entry.get("case_number", ""),
-                "case_type": entry.get("case_type", ""),
-                "cause": entry.get("cause", ""),
-                "court": entry.get("court", ""),
-                "decision_result": entry.get("decision_result", ""),
-                "legal_basis": entry.get("legal_basis", ""),
-                "invention_name": entry.get("invention_name", ""),
-                "application_number": entry.get("application_number", ""),
-                "source_path": entry.get("source_path", ""),
-                "source_file": entry.get("source_file", ""),
-                "text": entry.get("text", ""),
-                "score": float(distances[0][j]),
-            }
-        )
-    return _field_filter(hits, ground=ground, ipc=ipc, result=result, case_type=case_type)[:k]
+    return _query_precedent(
+        query, k, backend,
+        ids_loader=load_judgment_ordered_ids, meta_loader=load_judgment_meta,
+        fields={
+            "judgment_id": "judgment_id", "case_number": "case_number",
+            "case_type": "case_type", "cause": "cause", "court": "court",
+            "decision_result": "decision_result", "legal_basis": "legal_basis",
+            "invention_name": "invention_name", "application_number": "application_number",
+            "source_path": "source_path", "source_file": "source_file", "text": "text",
+        },
+        ground=ground, ipc=ipc, result=result, case_type=case_type,
+    )
 
 
 def collect_judgment_hits(query: str, k: int = 8) -> List[Dict[str, Any]]:

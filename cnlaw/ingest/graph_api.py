@@ -105,18 +105,20 @@ def ground(article: str = Query(..., description="法条引用，如 专利法�
         dparam["ipc"] = ipc
 
     # Decisions: optional IPC-subtree restriction (decisions carry classified_in).
-    dcount = "MATCH (d:PatentDecision)-[:based_on]->(a:Article) WHERE " + base_where
-    dpage = dcount + " "
-    if ipc:
-        dcount += " WITH d, a MATCH (d)-[:classified_in]->(i:IpcNode) WHERE i.code STARTS WITH $ipc "
-        dpage += "WITH d, a MATCH (d)-[:classified_in]->(i:IpcNode) WHERE i.code STARTS WITH $ipc "
-    dcount += " RETURN count(DISTINCT d) AS n"
+    # The IPC join is appended identically to the count and the page query so the
+    # returned total and page always agree on the IPC filter.
+    ipc_join = (" WITH d, a MATCH (d)-[:classified_in]->(i:IpcNode) "
+                "WHERE i.code STARTS WITH $ipc " if ipc else "")
+    dcount = ("MATCH (d:PatentDecision)-[:based_on]->(a:Article) WHERE " + base_where
+              + ipc_join + " RETURN count(DISTINCT d) AS n")
     total_decisions = int(store.execute_query(dcount, dparam).get("records", [{}])[0].get("n", 0))
-    dpage += ("RETURN DISTINCT d.case_number AS case_number, d.decision_id AS id, "
-              "d.case_type AS case_type, d.decision_result AS decision_result, "
-              "a.full_name AS law, a.number AS article, d.source_path AS source_path, "
-              "d.source_file AS source_file "
-              "ORDER BY case_number, id SKIP $offset LIMIT $k")
+    dpage = ("MATCH (d:PatentDecision)-[:based_on]->(a:Article) WHERE " + base_where
+             + ipc_join
+             + "RETURN DISTINCT d.case_number AS case_number, d.decision_id AS id, "
+               "d.case_type AS case_type, d.decision_result AS decision_result, "
+               "a.full_name AS law, a.number AS article, d.source_path AS source_path, "
+               "d.source_file AS source_file "
+               "ORDER BY case_number, id SKIP $offset LIMIT $k")
     drecs = store.execute_query(dpage, dparam).get("records", [])
     hits = [
         GroundHit(kind="decision", id=r["id"] or "", case_number=r["case_number"] or "",

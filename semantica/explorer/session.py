@@ -2,6 +2,8 @@
 Semantica Explorer session helpers.
 """
 
+from collections import OrderedDict
+
 import base64
 import json
 import logging
@@ -38,6 +40,11 @@ logger = logging.getLogger(__name__)
 class GraphSession:
     """Thread-safe session wrapper around a loaded ``ContextGraph``."""
 
+    # Bounded page caches: a long-lived session serving many distinct
+    # (filter, revision) combos must not grow unbounded; the oldest entries
+    # beyond this cap are evicted (LRU via OrderedDict move_to_end).
+    _PAGE_CACHE_MAX = 64
+
     def __init__(
         self,
         graph: ContextGraph,
@@ -68,8 +75,8 @@ class GraphSession:
         # per page and made the canvas load take minutes on a ~140k-edge graph.
         # We now normalize+filter+sort once per (query params, graph_revision)
         # and slice O(limit) per page; keyed by revision so mutations invalidate.
-        self._edge_page_cache: Dict[tuple, tuple] = {}
-        self._node_page_cache: Dict[tuple, tuple] = {}
+        self._edge_page_cache: OrderedDict[tuple, tuple] = OrderedDict()
+        self._node_page_cache: OrderedDict[tuple, tuple] = OrderedDict()
         self.rebuild_search_index()
 
     @classmethod
@@ -330,6 +337,8 @@ class GraphSession:
         cache_key = (node_type, search, bbox, self._graph_revision)
         with self._lock:
             cached = self._node_page_cache.get(cache_key)
+            if cached is not None:
+                self._node_page_cache.move_to_end(cache_key)
             if cached is None:
                 node_ids: Iterable[str]
                 if node_type:
@@ -358,6 +367,9 @@ class GraphSession:
                     normalized_by_id[node_id] = normalized
                 cached = (filtered_ids, normalized_by_id)
                 self._node_page_cache[cache_key] = cached
+                self._node_page_cache.move_to_end(cache_key)
+                if len(self._node_page_cache) > self._PAGE_CACHE_MAX:
+                    self._node_page_cache.popitem(last=False)
             filtered_ids, normalized_by_id = cached
 
         total = len(filtered_ids)
@@ -413,6 +425,8 @@ class GraphSession:
         cache_key = (edge_type, source, target, self._graph_revision)
         with self._lock:
             cached = self._edge_page_cache.get(cache_key)
+            if cached is not None:
+                self._edge_page_cache.move_to_end(cache_key)
             if cached is None:
                 raw_edges = self.graph.find_edges(edge_type=edge_type)
 
@@ -433,6 +447,9 @@ class GraphSession:
                 ordered = sorted(zip(keys, normalized_edges), key=lambda item: item[0])
                 cached = ([key for key, _ in ordered], [edge for _, edge in ordered])
                 self._edge_page_cache[cache_key] = cached
+                self._edge_page_cache.move_to_end(cache_key)
+                if len(self._edge_page_cache) > self._PAGE_CACHE_MAX:
+                    self._edge_page_cache.popitem(last=False)
             ordered_keys, ordered_edges = cached
 
         total = len(ordered_edges)
